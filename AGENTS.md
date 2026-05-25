@@ -136,7 +136,7 @@ var update_manager: Node
 
 # Funciones: snake_case
 func check_for_updates() -> bool:
-    pass
+	pass
 
 # Señales: snake_case
 signal license_verified(device_id: String)

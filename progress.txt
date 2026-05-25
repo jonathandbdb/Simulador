@@ -43,12 +43,46 @@ Notas operativas:
 ================================================================
 SPRINT 2 — F2 PoC GO/NO-GO ⚠️ BLOQUEANTE
 ================================================================
-Estado: PENDIENTE — proximo sprint
+Estado: EN CURSO
 
 Objetivo: medir si el simulador es viable a >=72 FPS en Quest 2 con
 post-procesado asimetrico por ojo.
 
 Detalle completo y criterios de salida en PLAN.md.
+Protocolo de medicion y tabla de resultados en MEASUREMENTS.md.
 
-Hito visible: video del Quest mostrando blur diferente por ojo +
-tabla con frame time GPU medido.
+Hecho:
+  [x] features/vision_shaders/sprint2_blur_test.gdshader: shader spatial
+      con hint_screen_texture + hint_depth_texture, box blur 9-tap
+      asimetrico via VIEW_INDEX, halo via threshold + LOD alto, conversion
+      depth-a-metros con INV_PROJECTION_MATRIX.
+  [x] features/vr_core/main.tscn: escena Sprint 2 con WorldEnvironment +
+      DirectionalLight3D + TestEnvironment (floor, 3 cubos a 0.4m/2m/10m
+      con labels, esfera emissive para halo) + XROrigin3D con XRCamera3D
+      conteniendo PostProcessQuad y FpsHud.
+  [x] features/vr_core/main.gd: aplica preset asimetrico al arrancar
+      (izq=PanOptix simulado, der=Vivity simulado), configura FSR
+      scaling_3d_scale=0.85, calcula FPS y frame time en _process().
+  [x] MEASUREMENTS.md: protocolo de medicion completo con criterio GO/NO-GO,
+      tabla para Runs, variantes a probar si NO-GO.
+
+Pendiente NO automatizable (te toca a vos):
+  [ ] Re-abrir el editor de Godot (importa el shader y la escena nuevos).
+  [ ] Re-exportar:
+        godot --headless --path . --export-debug "Android" Simulador.apk
+  [ ] Re-instalar:
+        adb install -r Simulador.apk
+  [ ] (Recomendado) Instalar OVR Metrics Tool en el Quest:
+        https://developer.oculus.com/downloads/package/ovr-metrics-tool/
+        adb install -r OVRMetricsTool.apk
+  [ ] Lanzar el simulador. Observar:
+        - Una escena 3D con piso gris, 3 cubos (rojo cerca, verde medio, azul lejos)
+          y una esfera blanca brillante.
+        - El FpsHud arriba a la derecha mostrando FPS y frame time.
+        - Cada ojo ve un nivel de blur DIFERENTE en cada cubo:
+            * Ojo izq: blur_near=0.5 medium=0.2 far=0.1, halo=0.7
+            * Ojo der: blur_near=0.8 medium=0.1 far=0.0, halo=0.2
+          Tapando un ojo y luego el otro, la diferencia debe ser obvia.
+        - La esfera brillante muestra halos solo en el ojo izquierdo (intensidad 0.7).
+  [ ] Seguir protocolo de MEASUREMENTS.md y completar Run 1.
+  [ ] Reportar resultados aca (FPS, frame time, veredicto).

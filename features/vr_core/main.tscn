@@ -1,25 +1,162 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=27 format=3]
 
 [ext_resource type="Script" path="res://features/vr_core/main.gd" id="1_main"]
-[ext_resource type="Shader" path="res://features/vision_shaders/eye_test.gdshader" id="2_shader"]
+[ext_resource type="Shader" path="res://features/vision_shaders/sprint2_blur_test.gdshader" id="2_shader"]
 
-[sub_resource type="QuadMesh" id="QuadMesh_eye_test"]
-size = Vector2(2, 2)
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
+sky_top_color = Color(0.18, 0.32, 0.55, 1)
+sky_horizon_color = Color(0.5, 0.55, 0.55, 1)
+ground_bottom_color = Color(0.1, 0.1, 0.1, 1)
+ground_horizon_color = Color(0.4, 0.4, 0.4, 1)
+sun_angle_max = 30.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_eye_test"]
+[sub_resource type="Sky" id="Sky_1"]
+sky_material = SubResource("ProceduralSkyMaterial_1")
+
+[sub_resource type="Environment" id="Environment_1"]
+background_mode = 2
+sky = SubResource("Sky_1")
+ambient_light_source = 3
+ambient_light_color = Color(0.6, 0.7, 0.85, 1)
+ambient_light_energy = 0.4
+
+[sub_resource type="BoxMesh" id="BoxMesh_floor"]
+size = Vector3(20, 0.1, 20)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]
+albedo_color = Color(0.4, 0.4, 0.42, 1)
+roughness = 0.85
+
+[sub_resource type="BoxMesh" id="BoxMesh_cube"]
+size = Vector3(0.2, 0.2, 0.2)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_red"]
+albedo_color = Color(0.95, 0.2, 0.18, 1)
+roughness = 0.5
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_green"]
+albedo_color = Color(0.18, 0.85, 0.25, 1)
+roughness = 0.5
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_blue"]
+albedo_color = Color(0.18, 0.4, 0.95, 1)
+roughness = 0.5
+
+[sub_resource type="SphereMesh" id="SphereMesh_bright"]
+radius = 0.15
+height = 0.3
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_emissive"]
+albedo_color = Color(1, 1, 0.85, 1)
+emission_enabled = true
+emission = Color(1, 0.95, 0.7, 1)
+emission_energy_multiplier = 8.0
+roughness = 0.0
+
+[sub_resource type="QuadMesh" id="QuadMesh_postprocess"]
+size = Vector2(4, 4)
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_postprocess"]
+render_priority = -1
 shader = ExtResource("2_shader")
+shader_parameter/near_distance = 0.4
+shader_parameter/medium_distance = 2.0
+shader_parameter/far_distance = 10.0
+shader_parameter/blur_near_l = 0.0
+shader_parameter/blur_medium_l = 0.0
+shader_parameter/blur_far_l = 0.0
+shader_parameter/blur_near_r = 0.0
+shader_parameter/blur_medium_r = 0.0
+shader_parameter/blur_far_r = 0.0
+shader_parameter/halo_intensity_l = 0.0
+shader_parameter/halo_intensity_r = 0.0
+shader_parameter/halo_threshold = 0.8
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_1")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 0, 5, 0)
+light_energy = 1.2
+shadow_enabled = true
+
+[node name="TestEnvironment" type="Node3D" parent="."]
+
+[node name="Floor" type="MeshInstance3D" parent="TestEnvironment"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.05, 0)
+mesh = SubResource("BoxMesh_floor")
+surface_material_override/0 = SubResource("StandardMaterial3D_floor")
+
+[node name="NearCube" type="MeshInstance3D" parent="TestEnvironment"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.4)
+mesh = SubResource("BoxMesh_cube")
+surface_material_override/0 = SubResource("StandardMaterial3D_red")
+
+[node name="NearLabel" type="Label3D" parent="TestEnvironment/NearCube"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.18, 0)
+billboard = 1
+no_depth_test = true
+fixed_size = true
+text = "0.4m (near)"
+font_size = 24
+outline_size = 6
+
+[node name="MediumCube" type="MeshInstance3D" parent="TestEnvironment"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.5, 0, -2)
+mesh = SubResource("BoxMesh_cube")
+surface_material_override/0 = SubResource("StandardMaterial3D_green")
+
+[node name="MediumLabel" type="Label3D" parent="TestEnvironment/MediumCube"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.18, 0)
+billboard = 1
+no_depth_test = true
+fixed_size = true
+text = "2m (medium)"
+font_size = 24
+outline_size = 6
+
+[node name="FarCube" type="MeshInstance3D" parent="TestEnvironment"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.5, 0.3, -10)
+mesh = SubResource("BoxMesh_cube")
+surface_material_override/0 = SubResource("StandardMaterial3D_blue")
+
+[node name="FarLabel" type="Label3D" parent="TestEnvironment/FarCube"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.18, 0)
+billboard = 1
+no_depth_test = true
+fixed_size = true
+text = "10m (far)"
+font_size = 24
+outline_size = 6
+
+[node name="BrightSphere" type="MeshInstance3D" parent="TestEnvironment"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, 1.2, -5)
+mesh = SubResource("SphereMesh_bright")
+surface_material_override/0 = SubResource("StandardMaterial3D_emissive")
 
 [node name="XROrigin3D" type="XROrigin3D" parent="."]
 
 [node name="XRCamera3D" type="XRCamera3D" parent="XROrigin3D"]
 
-[node name="EyeTestQuad" type="MeshInstance3D" parent="XROrigin3D/XRCamera3D"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.5)
-mesh = SubResource("QuadMesh_eye_test")
-material_override = SubResource("ShaderMaterial_eye_test")
+[node name="PostProcessQuad" type="MeshInstance3D" parent="XROrigin3D/XRCamera3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.1)
+extra_cull_margin = 16384.0
+mesh = SubResource("QuadMesh_postprocess")
+material_override = SubResource("ShaderMaterial_postprocess")
+
+[node name="FpsHud" type="Label3D" parent="XROrigin3D/XRCamera3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.35, 0.25, -1)
+billboard = 1
+no_depth_test = true
+fixed_size = true
+render_priority = 10
+text = "FPS: --"
+font_size = 28
+outline_size = 8
+modulate = Color(1, 1, 0.4, 1)
 
 [node name="LeftHand" type="XRController3D" parent="XROrigin3D"]
 tracker = &"left_hand"
