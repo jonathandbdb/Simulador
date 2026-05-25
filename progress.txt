@@ -1,6 +1,7 @@
-# progress.txt — Simulador VR Oftalmologico
+# progress.txt — Estado de avance del Simulador VR Oftalmologico
 
-Estado de avance entre sesiones. Actualizar al cerrar cada sprint.
+Para el plan completo de sprints (todos los hitos, criterios de salida y estimaciones)
+ver `PLAN.md` en la raiz. Este archivo es solo el estado actual y notas de la sesion.
 
 ================================================================
 SPRINT 0 — Setup del proyecto
@@ -20,40 +21,34 @@ Fixes clave descubiertos durante el sprint:
 ================================================================
 SPRINT 1 — F1 minima (OpenXR + VIEW_INDEX)
 ================================================================
-Estado: EN CURSO
+Estado: CERRADO ✅
 
-Objetivo: validar visualmente que el "Blend" tecnico funciona.
+Validacion: en Quest 2, ojo izquierdo ve rojo y ojo derecho ve azul.
+Confirma que toda la cadena VIEW_INDEX -> multiview -> renderer estereo
+funciona, que es la base del Blend asimetrico de F2.
 
-Hito: en el Quest 2, el ojo izquierdo ve ROJO y el ojo derecho ve AZUL.
+Entregables:
+  - features/vr_core/main.tscn (XROrigin3D + XRCamera3D + EyeTestQuad +
+    LeftHand/RightHand controllers).
+  - features/vr_core/main.gd (bootstrap OpenXR + use_xr + physics 90Hz).
+  - features/vision_shaders/eye_test.gdshader (shader spatial unshaded
+    con `if VIEW_INDEX == VIEW_MONO_LEFT` rojo / else azul).
+  - project.godot run/main_scene apuntando a la escena.
 
-Hecho:
-  [x] features/vr_core/main.gd: bootstrap OpenXR + use_xr + physics 90Hz.
-  [x] features/vr_core/main.tscn: XROrigin3D + XRCamera3D + EyeTestQuad
-      (MeshInstance3D hijo de la camara, 0.5m delante) + LeftHand + RightHand.
-  [x] features/vision_shaders/eye_test.gdshader: shader spatial unshaded
-      con if VIEW_INDEX == VIEW_MONO_LEFT pinta rojo, else pinta azul.
-  [x] project.godot: run/main_scene apunta a features/vr_core/main.tscn.
-
-Pendiente NO automatizable (te toca a vos):
-  [ ] Abrir el proyecto en el editor de Godot (puede pedir importar los
-      assets nuevos — aceptar).
-  [ ] Re-exportar:
-        godot --headless --path . --export-debug "Android" Simulador.apk
-  [ ] Re-instalar:
-        adb install -r Simulador.apk
-  [ ] Arrancar la app en el Quest 2. Validacion:
-        - No aparece el cartel "OpenXR was requested but failed to start".
-        - El ojo izquierdo ve un campo rojo, el derecho un campo azul.
-        - Si pones el dedo entre los ojos cerrando uno por vez, alternas
-          entre rojo y azul.
-
-Si funciona: Sprint 1 cierra y arrancamos Sprint 2 (PoC GO/NO-GO de F2).
-Si no: pegar logcat con
-        adb logcat -s godot:* OpenXR:* GodotOpenXR:* *:E
+Notas operativas:
+  - El test no requiere controllers: se valida solo con la vision.
+  - Quest 2 con hand tracking activo en Settings -> Movimiento permite
+    operar el sistema sin pilas en los controles.
 
 ================================================================
-SPRINT 2 — F2 PoC GO/NO-GO — PENDIENTE
+SPRINT 2 — F2 PoC GO/NO-GO ⚠️ BLOQUEANTE
 ================================================================
-Hito: blur asimetrico por ojo a >=72 FPS estables en Quest 2.
+Estado: PENDIENTE — proximo sprint
 
-(Resto de sprints documentados en el chat de planificacion).
+Objetivo: medir si el simulador es viable a >=72 FPS en Quest 2 con
+post-procesado asimetrico por ojo.
+
+Detalle completo y criterios de salida en PLAN.md.
+
+Hito visible: video del Quest mostrando blur diferente por ojo +
+tabla con frame time GPU medido.

@@ -4,11 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-**Sprint 0 in progress.** The repo has the Godot project skeleton (`project.godot` configured for OpenXR + XR shaders + Forward+/D3D12 + Jolt + 90 Hz physics + VSYNC off), the directory structure (`autoloads/`, `features/`, `shared/`, `defaults/`, `backend/`), the seed lens catalog (`defaults/lentes.json`), and the `DataManager` autoload skeleton. Backend, scenes, shaders, license/OTA logic — none written yet.
+**Sprint 1 closed.** Sprint 2 (F2 PoC GO/NO-GO) is next. The repo has the Godot project skeleton (`project.godot` configured for OpenXR + XR shaders + Forward+/D3D12 + Jolt + 90 Hz physics + VSYNC off + Meta XR loader via `godot_openxr_vendors` + Gradle Build), the directory structure, the seed lens catalog (`defaults/lentes.json`), the `DataManager` autoload skeleton, and a stereoscopic test scene that renders red on the left eye and blue on the right (validated on Quest 2).
 
-Track progress in `progress.txt` at the repo root. Update it at the end of each sprint.
-
-The canonical agent briefing is `AGENTS.md`; the design specs are in `context/` (Roadmap + 6 phase files + open-questions doc).
+**Documentation hierarchy:**
+- `PLAN.md` — full sprint roadmap, criteria de salida, locked decisions, risk register. **Source of truth for what comes next.**
+- `progress.txt` — current sprint status + session notes. Updated at sprint close.
+- `AGENTS.md` — agent-facing project briefing (stack, conventions, decisions already taken).
+- `context/` — original design specs (Roadmap_Simulador_v2.md + fase_0..5.md + preguntas_abiertas.md). 📋 Notas Tecnicas in each phase file have already verified Godot 4.6 APIs — don't re-verify, use as written.
 
 ## What this will become
 
