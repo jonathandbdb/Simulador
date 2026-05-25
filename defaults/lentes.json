@@ -1,0 +1,44 @@
+{
+  "version": "0.0.1-seed",
+  "catalogo": [
+    {
+      "id": "monofocal",
+      "nombre": "Monofocal Estandar",
+      "descripcion": "Lente monofocal de referencia. Foco unico, sin halos significativos.",
+      "params": {
+        "halo_intensity": { "default": 0.05, "min": 0.0, "max": 0.3 },
+        "contrast_loss":  { "default": 0.05, "min": 0.0, "max": 0.2 },
+        "blur_near":      { "default": 0.8,  "min": 0.0, "max": 1.0 },
+        "blur_medium":    { "default": 0.2,  "min": 0.0, "max": 1.0 },
+        "blur_far":       { "default": 0.0,  "min": 0.0, "max": 1.0 },
+        "focal_distance_m": { "default": 6.0, "min": 0.3, "max": 100.0 }
+      }
+    },
+    {
+      "id": "panoptix",
+      "nombre": "PanOptix Pro",
+      "descripcion": "Lente trifocal. Tres puntos focales (cerca, intermedio, lejos). Halos nocturnos visibles.",
+      "params": {
+        "halo_intensity": { "default": 0.6,  "min": 0.0, "max": 1.0 },
+        "contrast_loss":  { "default": 0.2,  "min": 0.0, "max": 0.5 },
+        "blur_near":      { "default": 0.1,  "min": 0.0, "max": 1.0 },
+        "blur_medium":    { "default": 0.15, "min": 0.0, "max": 1.0 },
+        "blur_far":       { "default": 0.1,  "min": 0.0, "max": 1.0 },
+        "focal_distance_m": { "default": 0.4, "min": 0.3, "max": 100.0 }
+      }
+    },
+    {
+      "id": "vivity",
+      "nombre": "Vivity EDOF",
+      "descripcion": "Lente de profundidad de foco extendida. Buena vision intermedia y lejana, halos minimos.",
+      "params": {
+        "halo_intensity": { "default": 0.2,  "min": 0.0, "max": 0.6 },
+        "contrast_loss":  { "default": 0.1,  "min": 0.0, "max": 0.3 },
+        "blur_near":      { "default": 0.5,  "min": 0.0, "max": 1.0 },
+        "blur_medium":    { "default": 0.05, "min": 0.0, "max": 1.0 },
+        "blur_far":       { "default": 0.05, "min": 0.0, "max": 1.0 },
+        "focal_distance_m": { "default": 2.0, "min": 0.3, "max": 100.0 }
+      }
+    }
+  ]
+}

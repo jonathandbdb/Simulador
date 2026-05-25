@@ -1,3 +1,37 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# Export artefactos
+/build/
+*.apk
+*.aab
+*.pck
+*.zip
+
+# Export presets contienen rutas absolutas y pueden referenciar keystores
+# Cada dev configura su preset local. Si en el futuro hay que compartir
+# uno limpio (sin keystore), commitearlo como export_presets.cfg.example.
+export_presets.cfg
+
+# Keystores y secretos
+*.keystore
+*.jks
+*.p12
+
+# Backend
+backend/.env
+backend/*.db
+backend/__pycache__/
+backend/.venv/
+backend/venv/
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
