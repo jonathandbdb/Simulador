@@ -11,22 +11,9 @@ extends Node
 ##  3. Exponer senales para UI/HUD: catalog_loaded, catalog_synced_with_backend,
 ##     catalog_sync_failed.
 
-# ====================================================================
-# Configuracion del backend
-# ====================================================================
-#
-# Cambiar BACKEND_URL al deployar:
-#   - Editor Godot en PC:                    http://localhost:8080
-#   - Quest sideload + backend en LAN:       http://<IP_DE_LA_PC>:8080
-#                                            (averiguar con `ipconfig`)
-#   - Produccion en VPS:                     https://api.tu-dominio.com
-#
-# IMPORTANTE en Quest standalone:
-#   - El Quest debe estar en el mismo wifi que la PC.
-#   - El firewall de Windows debe permitir conexiones entrantes en :8080.
-#     (Para abrir, ver progress.txt - Sprint 4.)
-
-const BACKEND_URL := "http://localhost:8080"
+# Backend hardcodeado temporalmente (LAN de desarrollo).
+# TODO: volver al resolver runtime cuando se valide conectividad desde Quest.
+const BACKEND_URL := "http://192.168.2.12:8080"
 const CATALOG_ENDPOINT := "/api/lenses"
 const SYNC_TIMEOUT_SECONDS := 5.0
 
@@ -127,6 +114,7 @@ func _count_lenses(cat: Dictionary) -> int:
 # ====================================================================
 func _try_sync_with_backend() -> void:
 	var url := BACKEND_URL + CATALOG_ENDPOINT
+	print("DataManager: sync con backend -> %s" % url)
 	var err := _http.request(url, [], HTTPClient.METHOD_GET)
 	if err != OK:
 		catalog_sync_failed.emit("HTTPRequest.request() fallo: %d" % err)
@@ -192,7 +180,7 @@ func get_lens_ids() -> Array:
 	return ids
 
 
-## Aplica una lente a un ojo (o a ambos si blend_mode esta desactivado).
+## Aplica una lente a un ojo (o a ambos).
 ## eye: "left" | "right" | "both".
 func apply_lens(lens_id: String, eye: String = "both") -> void:
 	var lens := get_lens(lens_id)
@@ -203,12 +191,20 @@ func apply_lens(lens_id: String, eye: String = "both") -> void:
 	var params := _params_to_defaults(lens.get("params", {}))
 	params["lens_id"] = lens_id
 
-	if eye == "left" or eye == "both" or not blend_mode_enabled:
+	# Respetar SIEMPRE el ojo solicitado. blend_mode_enabled es solo un flag
+	# informativo: se considera activo cuando los dos ojos tienen distintas
+	# lentes; no condiciona quien recibe el apply.
+	if eye == "left" or eye == "both":
 		current_vision_state["left"] = params.duplicate()
 		vision_state_changed.emit("left", current_vision_state["left"])
-	if eye == "right" or eye == "both" or not blend_mode_enabled:
+	if eye == "right" or eye == "both":
 		current_vision_state["right"] = params.duplicate()
 		vision_state_changed.emit("right", current_vision_state["right"])
+
+	# Actualizar el flag Blend en base al estado actual.
+	var left_id: String = current_vision_state["left"].get("lens_id", "")
+	var right_id: String = current_vision_state["right"].get("lens_id", "")
+	blend_mode_enabled = left_id != "" and right_id != "" and left_id != right_id
 
 
 func _params_to_defaults(params_def: Dictionary) -> Dictionary:

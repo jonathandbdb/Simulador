@@ -206,3 +206,105 @@ Criterio de salida del Sprint 4:
      el render del shader de Sprint 2.
   4. El FPS se mantiene en el mismo orden que Sprint 2 (>=72 estable en
      Quest 2) — el fade no debe penalizar el frame time.
+
+Bug encontrado y resuelto durante el Test 2 (acceso desde LAN):
+  - Sintoma: desde Quest, celular y otra PC en la misma wifi, el backend
+    devolvia pagina en blanco / "inalcanzable". Desde localhost en la PC
+    host funcionaba perfecto. Firewall ya estaba abierto y Docker bindeaba
+    0.0.0.0:8080 (verificado con netstat).
+  - Causa: en backend/.env teniamos DOMAIN=localhost. El Caddyfile usa
+    `{$SCHEME}{$DOMAIN:localhost}:{$PORT:8080}` como direccion del sitio,
+    asi que Caddy solo aceptaba requests cuyo header Host fuera
+    "localhost:8080". Cualquier request de la LAN llega con Host=<IP>:8080
+    y Caddy no matcheaba ningun sitio -> respuesta vacia.
+  - Fix: dejar DOMAIN= vacio en .env (modo local). Caddy interpreta
+    http://:8080 como "escuchar en todos los hostnames". En prod volver
+    a setear DOMAIN=api.tu-dominio.com (necesario para que Caddy emita
+    el cert TLS especifico para ese host).
+  - Comando para aplicar: docker compose up -d --force-recreate caddy
+    (solo `up -d` no recrea si no cambio el compose; force-recreate si).
+
+Bug encadenado descubierto enseguida (Test 2, segunda pasada):
+  - Sintoma: tras cambiar DOMAIN= en .env, Caddy seguia devolviendo
+    Content-Length: 0 a peticiones desde la IP de LAN.
+  - Diagnostico via `docker exec backend-caddy-1 caddy adapt`: la config
+    JSON adaptada mostraba "match":[{"host":["localhost"]}], es decir,
+    Caddy seguia matcheando solo Host=localhost.
+  - Causa real: en docker-compose.yml la linea era
+        DOMAIN: ${DOMAIN:-localhost}
+    La sintaxis `${VAR:-default}` (con dos puntos) cae al default si la
+    var esta UNSET *o* VACIA. Por eso DOMAIN= se ignoraba y volvia a
+    localhost antes de llegar al container.
+  - Fix: cambiar a `${DOMAIN-localhost}` (sin dos puntos): solo cae al
+    default si la var esta unset; acepta string vacio como valor valido.
+  - Bug paralelo: BACKEND_URL en autoloads/data_manager.gd estaba en
+    "http://localhost:8080". En Quest standalone, localhost = el Quest,
+    no la PC. RESULT_CANT_CONNECT (2) en HTTPRequest.
+    Fix temporal: hardcodear "http://192.168.2.12:8080".
+    Pendiente: hacer BACKEND_URL configurable en runtime (user://
+    backend_url.txt o ProjectSettings.get_setting con override) para no
+    reexportar el APK cada vez que cambia la IP de LAN.
+
+Estado al cierre de esta sesion del Sprint 4:
+  - Backend accesible desde LAN: validado con curl desde otra red ->
+    HTTP 200 + JSON completo (1422 bytes).
+  - APK reexportado con Godot 4.6.1 (template instalado) e instalado en
+    Quest via adb install -r. Faltaba ejecutar Test 1 (editor PC) y
+    confirmar SyncHud=backend OK en Quest tras el fix de Caddy.
+Intento de mejora descartado (BACKEND_URL configurable en runtime):
+  - Se probo un resolver runtime con prioridad
+    (1) user://backend_url.txt -> (2) ProjectSetting -> (3) const.
+  - No funciono en el Quest (siguio dando inalcanzable a pesar de pushear
+    backend_url.txt a /sdcard/Android/data/com.simulador.vr/files/).
+  - REVERTIDO: data_manager.gd vuelve a tener
+    `const BACKEND_URL := "http://192.168.2.12:8080"` hardcodeado.
+    project.godot vuelve a no tener application/config/backend_url.
+  - TODO post-Sprint 5: investigar por que el resolver no leyo el archivo
+    en Quest (posible permiso de scoped storage en Android 11+).
+
+Sprint 4 CERRADO:
+  - Catalogo carga desde defaults y sync con backend OK confirmado en
+    Quest 2 (SyncHud muestra "backend OK [0.0.1-seed]").
+  - Transicion dia/noche con fade negro funciona, no pisa el shader F2.
+  - FPS estables en el mismo orden que Sprint 2 (>=72 en Quest 2).
+  - APK actual: hardcode `http://192.168.2.12:8080` (LAN de dev).
+
+
+==============================================================
+Sprint 5 - F2 completa (lentes del catalogo aplicadas en runtime)
+==============================================================
+
+Cambios en features/vr_core/main.gd:
+  - Eliminado el PRESET hardcodeado. Ahora la fuente de verdad para los
+    uniforms del shader es DataManager.current_vision_state, alimentado
+    via DataManager.apply_lens(lens_id, eye).
+  - Suscripcion a DataManager.vision_state_changed(eye, params): cada
+    cambio actualiza los uniforms del shader unificado halo+DoF
+    (sprint2_blur_test.gdshader) usando SHADER_PARAM_MAP.
+  - Al cargar el catalogo (sea de cache, defaults o backend) se aplica
+    la lente INITIAL_LENS_ID="monofocal" a ambos ojos. Fallback a la
+    primera lente del catalogo si no existe.
+  - Input handler del XRController3D derecho:
+      * boton A  (ax_button)    -> proxima lente para ojo izquierdo
+      * boton B  (by_button)    -> proxima lente para ojo derecho
+      * trigger  (trigger_click) -> reset Blend (misma lente en ambos)
+    Asi se habilita el modo Blend (lentes distintas por ojo) sin UI
+    explicita: el "modo Blend" emerge cuando A y B dejan los indices
+    desfasados.
+  - SyncHud se reutiliza para mostrar la lente activa por ojo:
+        "L: monofocal
+         R: panoptix (Blend)"
+
+Criterio de salida del Sprint 5:
+  1. Cambiar de lente con el control derecho produce una diferencia
+     visual notable (blur o halo) en al menos 3 lentes del catalogo.
+  2. Modo Blend funciona: ojo izquierdo y ojo derecho pueden mostrar
+     simultaneamente parametros de lentes distintas.
+  3. FPS estables en el mismo orden que Sprint 2 (>=72 en Quest 2).
+  4. No hay PRESET hardcodeado en main.gd.
+
+Pendiente de validacion en Quest (siguiente sesion):
+  - Confirmar que el SyncHud muestra "L: monofocal / R: monofocal" al
+    arrancar y va cambiando al apretar A/B.
+  - Confirmar diferencias visuales notables entre monofocal/panoptix/vivity.
+  - Medir FPS con el modo Blend mas asimetrico posible (panoptix vs vivity).

@@ -77,11 +77,15 @@ services:
   caddy:
     image: caddy:2-alpine
     environment:
-      DOMAIN: ${DOMAIN:-localhost}
+      # OJO: usamos ${VAR-default} (sin dos puntos) para que un DOMAIN vacio
+      # en .env no caiga al default. Asi en modo local podemos dejar DOMAIN=
+      # y Caddy escucha en cualquier hostname (clave para acceder por IP de
+      # LAN desde el Quest/celular/otra PC).
+      DOMAIN: ${DOMAIN-localhost}
       PORT: ${PORT:-8080}
       # SCHEME=http:// fuerza HTTP plano (modo local).
       # SCHEME vacio = Caddy decide (auto HTTPS para dominios reales en prod).
-      SCHEME: ${SCHEME:-http://}
+      SCHEME: ${SCHEME-http://}
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
       - "${HTTPS_PORT:-443}:443"
