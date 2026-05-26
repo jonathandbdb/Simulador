@@ -19,6 +19,7 @@ config/icon="res://icon.svg"
 [autoload]
 
 DataManager="*res://autoloads/data_manager.gd"
+StreamingServer="*res://autoloads/streaming_server.gd"
 
 [display]
 

@@ -178,6 +178,17 @@ font_size = 24
 outline_size = 6
 modulate = Color(0.6, 1, 0.7, 1)
 
+[node name="StreamHud" type="Label3D" parent="XROrigin3D/XRCamera3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.35, -0.05, -1)
+billboard = 1
+no_depth_test = true
+fixed_size = true
+render_priority = 10
+text = "stream: --"
+font_size = 22
+outline_size = 6
+modulate = Color(0.7, 0.85, 1, 1)
+
 [node name="FadeQuad" type="MeshInstance3D" parent="XROrigin3D/XRCamera3D"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.05)
 extra_cull_margin = 16384.0

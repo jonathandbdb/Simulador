@@ -49,9 +49,11 @@ const NIGHT_PARAMS := {
 @onready var fade_quad: MeshInstance3D = $XROrigin3D/XRCamera3D/FadeQuad
 @onready var fps_label: Label3D = $XROrigin3D/XRCamera3D/FpsHud
 @onready var sync_label: Label3D = $XROrigin3D/XRCamera3D/SyncHud
+@onready var stream_label: Label3D = $XROrigin3D/XRCamera3D/StreamHud
 @onready var dir_light: DirectionalLight3D = $DirectionalLight3D
 @onready var world_env: WorldEnvironment = $WorldEnvironment
 @onready var right_hand: XRController3D = $XROrigin3D/RightHand
+@onready var xr_camera: XRCamera3D = $XROrigin3D/XRCamera3D
 
 var xr_interface: XRInterface
 var fps_accumulator: float = 0.0
@@ -61,6 +63,8 @@ var _cycle_timer: Timer
 # Indice de la lente activa en cada ojo dentro de DataManager.get_lens_ids().
 var _lens_index_left: int = 0
 var _lens_index_right: int = 0
+# Sprint 6: nodo de captura de streaming (creado en _ready).
+var _streaming_capture: Node = null
 
 
 func _ready() -> void:
@@ -95,6 +99,19 @@ func _ready() -> void:
 		_apply_initial_lens()
 
 	_start_day_night_cycle()
+	_setup_streaming_capture()
+
+
+func _setup_streaming_capture() -> void:
+	var script := load("res://features/tablet/streaming_capture.gd")
+	if script == null:
+		push_warning("main: streaming_capture.gd no encontrado, streaming desactivado.")
+		return
+	_streaming_capture = Node.new()
+	_streaming_capture.name = "StreamingCapture"
+	_streaming_capture.set_script(script)
+	_streaming_capture.camera_to_follow = xr_camera.get_path()
+	add_child(_streaming_capture)
 
 
 # ====================================================================
@@ -257,5 +274,23 @@ func _process(delta: float) -> void:
 		var frame_ms := (fps_accumulator / fps_frames) * 1000.0
 		var mode := "noche" if is_night else "dia"
 		fps_label.text = "FPS: %d\nFrame: %.2f ms\nmodo: %s" % [int(fps), frame_ms, mode]
+		_update_stream_hud()
 		fps_accumulator = 0.0
 		fps_frames = 0
+
+
+func _update_stream_hud() -> void:
+	if stream_label == null:
+		return
+	if StreamingServer == null or not StreamingServer.is_listening():
+		stream_label.text = "stream: OFF"
+		return
+	var clients := StreamingServer.get_open_client_count()
+	var frames := 0
+	var last_kb := 0.0
+	if _streaming_capture != null:
+		frames = _streaming_capture.get_frames_sent()
+		last_kb = _streaming_capture.get_last_jpg_size() / 1024.0
+	stream_label.text = "stream :%d\nclients: %d\nframes: %d\nlast: %.1f KB" % [
+		StreamingServer.LISTEN_PORT, clients, frames, last_kb,
+	]

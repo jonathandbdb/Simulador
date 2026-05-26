@@ -308,3 +308,18 @@ Pendiente de validacion en Quest (siguiente sesion):
     arrancar y va cambiando al apretar A/B.
   - Confirmar diferencias visuales notables entre monofocal/panoptix/vivity.
   - Medir FPS con el modo Blend mas asimetrico posible (panoptix vs vivity).
+
+=== Sprint 6 (F3 PoC streaming) — Implementacion (pendiente medicion) ===
+Fecha: 2026-05-26 16:41
+Archivos nuevos:
+  - autoloads/streaming_server.gd (WebSocket server en puerto 9090)
+  - features/tablet/streaming_capture.gd (SubViewport 512x512 @ 15 Hz, JPG q=0.5)
+  - features/tablet/streaming_client.tscn + .gd (cliente PC Godot)
+Cambios:
+  - project.godot: autoload StreamingServer registrado.
+  - features/vr_core/main.tscn: Label3D StreamHud agregado (FpsHud, SyncHud, StreamHud).
+  - features/vr_core/main.gd: _setup_streaming_capture + _update_stream_hud cada 0.5s.
+IP Quest detectada por adb: 192.168.2.30
+Proximo paso: arrancar APK, correr streaming_client.tscn en PC, medir FPS visor.
+Criterio GO: >=72 FPS con streaming activo.
+

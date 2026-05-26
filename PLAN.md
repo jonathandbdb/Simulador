@@ -88,7 +88,7 @@ Para el estado actual del avance ver `progress.txt`.
 **Criterio de salida:** `curl https://api.tu-dominio.com/api/manifest.json` retorna 200 desde el VPS.
 
 ### Sprint 4 — F1 completa
-**Estado:** EN CURSO
+**Estado:** CERRADO ✅
 **Objetivo:** simulador con catalogo dinamico y entorno 3D.
 **Entregables:**
 - `DataManager` con sync remoto (`/api/lenses`), fallback a defaults, cache en `user://lentes.json`.
@@ -96,9 +96,10 @@ Para el estado actual del avance ver `progress.txt`.
 - Fade to black via Quad 3D negro frente a la camara (Q1.2 opcion A).
 - Estado binocular completo: `current_vision_state = {left:{}, right:{}}`.
 **Criterio de salida:** el visor arranca, lee catalogo, muestra sala con luz que transiciona dia/noche.
+**Nota:** `BACKEND_URL` quedo hardcodeada a la IP de LAN de desarrollo (`http://192.168.2.12:8080`). TODO post-Sprint 5: investigar por que el resolver runtime no funciono en Quest (probable scoped storage Android 11+) y volver a una solucion configurable.
 
 ### Sprint 5 — F2 completa
-**Estado:** PENDIENTE
+**Estado:** CERRADO ✅
 **Objetivo:** shaders de lentes reales conectados al catalogo.
 **Entregables:**
 - Shader unificado halo + DoF con threshold de brillo (Q2.3 opcion C).
@@ -106,18 +107,25 @@ Para el estado actual del avance ver `progress.txt`.
 - 3-4 lentes reales del catalogo aplicables en runtime.
 - UI debug temporal en VR para cambiar de lente con el control derecho.
 **Criterio de salida:** cambiar de lente en VR muestra diferencia visual notable; modo Blend con lentes distintas por ojo funciona.
+**Nota:** durante Sprint 5 se descubrio y corrigio un bug en `DataManager.apply_lens()` que ignoraba el parametro `eye` cuando `blend_mode_enabled=false`, sobrescribiendo siempre ambos ojos. Ahora `blend_mode_enabled` es solo un flag informativo, calculado a partir del estado de los dos ojos.
 
 ### Sprint 6 — F3 PoC streaming GO/NO-GO ⚠️ BLOQUEANTE
-**Estado:** PENDIENTE
+**Estado:** EN CURSO (entregables implementados, pendiente medicion en Quest)
 **Objetivo:** validar la opcion A (video real) del streaming.
 **Entregables:**
-- `SubViewport` dedicado a 512x512 con `render_target_update_mode = UPDATE_ONCE` disparado por Timer a 15 Hz.
-- `WebSocketPeer` server en el visor (`TCPServer` + `accept_stream`).
-- Cliente Godot minimo en PC que recibe bytes, `Image.load_jpg_from_buffer`, `ImageTexture.update`, `TextureRect`.
-- Mediciones de impacto en frame time del visor.
+- `SubViewport` dedicado a 512x512 con `render_target_update_mode = UPDATE_ONCE` disparado por Timer a 15 Hz. ✅ `features/tablet/streaming_capture.gd`
+- `WebSocketPeer` server en el visor (`TCPServer` + `accept_stream`). ✅ `autoloads/streaming_server.gd` puerto 9090, autoload registrado.
+- Cliente Godot minimo en PC que recibe bytes, `Image.load_jpg_from_buffer`, `ImageTexture.update`, `TextureRect`. ✅ `features/tablet/streaming_client.tscn`.
+- HUD `StreamHud` en el visor (clients/frames/KB) para diagnostico. ✅
+- Mediciones de impacto en frame time del visor. ⏳ pendiente prueba en Quest.
 **Criterio GO:** visor mantiene >=72 FPS con streaming activo.
 **Si NO-GO:** pivotar a Opcion B (replicacion 2D sincrona). Documentar decision en `progress.txt`.
 **Hito:** PC muestra video del visor a 15 FPS.
+**Como probarlo:**
+1. APK ya instalada con `StreamingServer` autoload. Arrancar la app en el Quest (IP detectada `192.168.2.30`).
+2. En PC, abrir el proyecto en Godot 4.6.1 y correr `features/tablet/streaming_client.tscn` (F6), o desde CLI:
+   `& "C:\Users\jvare\Downloads\Godot_v4.6.1-stable_win64.exe\Godot_v4.6.1-stable_win64.exe" --path . features/tablet/streaming_client.tscn`
+3. Pulsar "Conectar". Validar (a) `StreamHud` del visor pasa a `clients: 1`, (b) `frames` sube ~15/s, (c) `FpsHud` se mantiene ≥72.
 
 ### Sprint 7 — F3 completa
 **Estado:** PENDIENTE
