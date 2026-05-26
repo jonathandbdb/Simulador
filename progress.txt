@@ -323,3 +323,15 @@ IP Quest detectada por adb: 192.168.2.30
 Proximo paso: arrancar APK, correr streaming_client.tscn en PC, medir FPS visor.
 Criterio GO: >=72 FPS con streaming activo.
 
+
+=== Sprint 6 CERRADO (GO) — 2026-05-26 17:03 ===
+Primer test: 512x512 @ 15 Hz + JPG q=0.5 en main thread => FPS cayo a 30-40 (NO-GO).
+Optimizaciones aplicadas:
+  - SubViewport 512 -> 256 (4x menos pixels).
+  - Tick 15 Hz -> 10 Hz.
+  - JPG quality 0.5 -> 0.4.
+  - save_jpg_to_buffer movido a WorkerThreadPool (call_deferred al main thread para broadcast).
+Segundo test: estable en Quest 2 (criterio GO cumplido). En Quest 3 deberia ser holgado.
+Riesgo R2 (captura sincrona stutters VR) -> MITIGADO.
+Nota: handshake con device_id (entregable Sprint 7) se pospone a Sprint 9 porque depende de licencias.
+

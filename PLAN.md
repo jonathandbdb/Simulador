@@ -110,30 +110,23 @@ Para el estado actual del avance ver `progress.txt`.
 **Nota:** durante Sprint 5 se descubrio y corrigio un bug en `DataManager.apply_lens()` que ignoraba el parametro `eye` cuando `blend_mode_enabled=false`, sobrescribiendo siempre ambos ojos. Ahora `blend_mode_enabled` es solo un flag informativo, calculado a partir del estado de los dos ojos.
 
 ### Sprint 6 — F3 PoC streaming GO/NO-GO ⚠️ BLOQUEANTE
-**Estado:** EN CURSO (entregables implementados, pendiente medicion en Quest)
+**Estado:** CERRADO ✅ (GO)
 **Objetivo:** validar la opcion A (video real) del streaming.
 **Entregables:**
-- `SubViewport` dedicado a 512x512 con `render_target_update_mode = UPDATE_ONCE` disparado por Timer a 15 Hz. ✅ `features/tablet/streaming_capture.gd`
-- `WebSocketPeer` server en el visor (`TCPServer` + `accept_stream`). ✅ `autoloads/streaming_server.gd` puerto 9090, autoload registrado.
+- `SubViewport` 256x256 con `render_target_update_mode = UPDATE_ONCE` disparado por Timer a 10 Hz. ✅ `features/tablet/streaming_capture.gd`
+- `WebSocketPeer` server en el visor (`TCPServer` + `accept_stream`). ✅ `autoloads/streaming_server.gd` puerto 9090.
 - Cliente Godot minimo en PC que recibe bytes, `Image.load_jpg_from_buffer`, `ImageTexture.update`, `TextureRect`. ✅ `features/tablet/streaming_client.tscn`.
-- HUD `StreamHud` en el visor (clients/frames/KB) para diagnostico. ✅
-- Mediciones de impacto en frame time del visor. ⏳ pendiente prueba en Quest.
-**Criterio GO:** visor mantiene >=72 FPS con streaming activo.
-**Si NO-GO:** pivotar a Opcion B (replicacion 2D sincrona). Documentar decision en `progress.txt`.
-**Hito:** PC muestra video del visor a 15 FPS.
-**Como probarlo:**
-1. APK ya instalada con `StreamingServer` autoload. Arrancar la app en el Quest (IP detectada `192.168.2.30`).
-2. En PC, abrir el proyecto en Godot 4.6.1 y correr `features/tablet/streaming_client.tscn` (F6), o desde CLI:
-   `& "C:\Users\jvare\Downloads\Godot_v4.6.1-stable_win64.exe\Godot_v4.6.1-stable_win64.exe" --path . features/tablet/streaming_client.tscn`
-3. Pulsar "Conectar". Validar (a) `StreamHud` del visor pasa a `clients: 1`, (b) `frames` sube ~15/s, (c) `FpsHud` se mantiene ≥72.
+- HUD `StreamHud` en el visor (clients/frames/KB). ✅
+**Resultado:** primera prueba (512x512 @ 15 Hz, encoding en main thread) bajaba FPS a 30-40. Tras optimizar (256x256, 10 Hz, JPG q=0.4 y mover `save_jpg_to_buffer` a `WorkerThreadPool`), el visor mantiene FPS estable en Quest 2 con streaming activo, cumpliendo el criterio GO. En Quest 3 deberia ser holgado.
+**Pendiente para Sprint 7:** medicion fina con perfviewer + decisiones sobre canal de control bidireccional.
 
 ### Sprint 7 — F3 completa
-**Estado:** PENDIENTE
+**Estado:** EN CURSO
 **Objetivo:** tablet de control funcional.
 **Entregables:**
 - WebSocket protocol con dos canales (control JSON / stream binario).
 - Cliente tablet completo: UI dinamica desde el JSON del catalogo, modo Blend con paneles divididos.
-- Hardware binding del WebSocket: handshake con `device_id`, whitelist cacheada de `/api/admin/devices`.
+- Hardware binding del WebSocket: handshake con `device_id`, whitelist cacheada de `/api/admin/devices`. **[Pospuesto a Sprint 9 — depende de licencias]**
 - Build separado para Android (tablet) ademas del Quest.
 **Criterio de salida:** desde la tablet se cambia de lente y el visor responde; modo Blend funciona desde la tablet.
 

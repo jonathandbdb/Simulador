@@ -13,6 +13,7 @@ config_version=5
 config/name="Simulador"
 config/description="Simulador VR oftalmologico para Meta Quest (Godot 4 + OpenXR)"
 run/main_scene="res://features/vr_core/main.tscn"
+run/main_scene.tablet="res://features/tablet/streaming_client.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
@@ -20,6 +21,7 @@ config/icon="res://icon.svg"
 
 DataManager="*res://autoloads/data_manager.gd"
 StreamingServer="*res://autoloads/streaming_server.gd"
+DiscoveryBeacon="*res://autoloads/discovery_beacon.gd"
 
 [display]
 

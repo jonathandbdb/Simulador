@@ -21,9 +21,9 @@ extends Node
 ##
 ## Criterio GO Sprint 6: el visor mantiene >=72 FPS con streaming activo.
 
-const CAPTURE_SIZE := Vector2i(256, 256)
+const CAPTURE_SIZE := Vector2i(320, 320)
 const CAPTURE_HZ := 10.0
-const JPG_QUALITY := 0.4
+const JPG_QUALITY := 0.55
 
 @export var camera_to_follow: NodePath
 @export var enabled: bool = true

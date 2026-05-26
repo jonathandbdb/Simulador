@@ -113,6 +113,52 @@ func _setup_streaming_capture() -> void:
 	_streaming_capture.camera_to_follow = xr_camera.get_path()
 	add_child(_streaming_capture)
 
+	# Sprint 7: canal de control bidireccional con la tablet.
+	StreamingServer.client_connected.connect(_on_streaming_client_connected)
+	StreamingServer.command_received.connect(_on_streaming_command_received)
+
+
+# ====================================================================
+# Sprint 7 — Control bidireccional desde la tablet
+# ====================================================================
+func _on_streaming_client_connected(peer_id: int, host: String) -> void:
+	print("main: cliente tablet %d conectado desde %s, enviando catalogo." % [peer_id, host])
+	# Snapshot del catalogo + estado actual de vision para que la tablet
+	# arme su UI sin tener que consultar el backend.
+	var msg := {
+		"type": "hello",
+		"catalog_version": DataManager.catalog.get("version", "?"),
+		"lenses": DataManager.catalog.get("catalogo", []),
+		"vision_state": DataManager.current_vision_state,
+	}
+	StreamingServer.send_text_to(peer_id, JSON.stringify(msg))
+
+
+func _on_streaming_command_received(cmd: Dictionary, peer_id: int) -> void:
+	var cmd_type: String = cmd.get("cmd", "")
+	match cmd_type:
+		"apply_lens":
+			var lens_id: String = cmd.get("lens_id", "")
+			var eye: String = cmd.get("eye", "both")
+			if lens_id == "":
+				push_warning("main: apply_lens sin lens_id (peer %d)" % peer_id)
+				return
+			var ids := DataManager.get_lens_ids()
+			if not ids.has(lens_id):
+				push_warning("main: apply_lens lens_id desconocido '%s' (peer %d)" % [lens_id, peer_id])
+				return
+			# Actualizar tambien los indices internos para que los botones del
+			# control derecho sigan ciclando coherentemente.
+			var idx := ids.find(lens_id)
+			if eye == "left" or eye == "both":
+				_lens_index_left = idx
+			if eye == "right" or eye == "both":
+				_lens_index_right = idx
+			DataManager.apply_lens(lens_id, eye)
+			print("main: tablet aplico '%s' en ojo '%s'" % [lens_id, eye])
+		_:
+			push_warning("main: comando desconocido de peer %d: %s" % [peer_id, cmd])
+
 
 # ====================================================================
 # DataManager wiring

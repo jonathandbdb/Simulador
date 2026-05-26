@@ -1,43 +1,187 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://features/tablet/streaming_client.gd" id="1_client"]
 
-[node name="StreamingClient" type="Control"]
+[sub_resource type="StyleBoxFlat" id="StyleBox_bg"]
+bg_color = Color(0.08, 0.09, 0.12, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
+bg_color = Color(0.13, 0.15, 0.19, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.25, 0.28, 0.34, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+content_margin_left = 14.0
+content_margin_top = 14.0
+content_margin_right = 14.0
+content_margin_bottom = 14.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_stream"]
+bg_color = Color(0.03, 0.04, 0.06, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.2, 0.22, 0.28, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_button"]
+bg_color = Color(0.18, 0.21, 0.27, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 10.0
+content_margin_top = 8.0
+content_margin_right = 10.0
+content_margin_bottom = 8.0
+
+[sub_resource type="Theme" id="Theme_app"]
+default_font_size = 16
+Button/styles/normal = SubResource("StyleBox_button")
+Panel/styles/panel = SubResource("StyleBox_panel")
+
+[node name="TabletClient" type="Control"]
 anchor_right = 1.0
 anchor_bottom = 1.0
+theme = SubResource("Theme_app")
 script = ExtResource("1_client")
 
-[node name="VBox" type="VBoxContainer" parent="."]
+[node name="Background" type="Panel" parent="."]
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 8.0
-offset_top = 8.0
-offset_right = -8.0
-offset_bottom = -8.0
 
-[node name="HBox" type="HBoxContainer" parent="VBox"]
+[node name="Margin" type="MarginContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="HBox" type="HBoxContainer" parent="Margin"]
 layout_mode = 2
+theme_override_constants/separation = 12
 
-[node name="HostLabel" type="Label" parent="VBox/HBox"]
+[node name="StreamPanel" type="PanelContainer" parent="Margin/HBox"]
 layout_mode = 2
-text = "Visor host:"
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 2.4
 
-[node name="HostEdit" type="LineEdit" parent="VBox/HBox"]
+[node name="VBox" type="VBoxContainer" parent="Margin/HBox/StreamPanel"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="HeaderLabel" type="Label" parent="Margin/HBox/StreamPanel/VBox"]
+layout_mode = 2
+text = "Vista del visor"
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.85, 0.9, 1, 1)
+
+[node name="TopBar" type="HBoxContainer" parent="Margin/HBox/StreamPanel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HostLabel" type="Label" parent="Margin/HBox/StreamPanel/VBox/TopBar"]
+layout_mode = 2
+text = "IP visor:"
+theme_override_colors/font_color = Color(0.7, 0.75, 0.85, 1)
+
+[node name="HostEdit" type="LineEdit" parent="Margin/HBox/StreamPanel/VBox/TopBar"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "192.168.2.30"
 placeholder_text = "IP del Quest (mismo wifi)"
 
-[node name="ConnectButton" type="Button" parent="VBox/HBox"]
+[node name="ConnectButton" type="Button" parent="Margin/HBox/StreamPanel/VBox/TopBar"]
 layout_mode = 2
 text = "Conectar"
+custom_minimum_size = Vector2(110, 0)
 
-[node name="StatusLabel" type="Label" parent="VBox"]
+[node name="DiscoveredLabel" type="Label" parent="Margin/HBox/StreamPanel/VBox"]
+layout_mode = 2
+text = "Visores detectados en la red:"
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.7, 0.75, 0.85, 1)
+
+[node name="DiscoveredList" type="HBoxContainer" parent="Margin/HBox/StreamPanel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="StatusLabel" type="Label" parent="Margin/HBox/StreamPanel/VBox"]
 layout_mode = 2
 text = "desconectado"
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.65, 0.7, 0.78, 1)
 
-[node name="TextureRect" type="TextureRect" parent="VBox"]
+[node name="StreamFrame" type="PanelContainer" parent="Margin/HBox/StreamPanel/VBox"]
 layout_mode = 2
 size_flags_vertical = 3
+theme_override_styles/panel = SubResource("StyleBox_stream")
+
+[node name="TextureRect" type="TextureRect" parent="Margin/HBox/StreamPanel/VBox/StreamFrame"]
+layout_mode = 2
 expand_mode = 1
 stretch_mode = 5
+
+[node name="ControlPanel" type="PanelContainer" parent="Margin/HBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 1.0
+
+[node name="VBox" type="VBoxContainer" parent="Margin/HBox/ControlPanel"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="ControlTitle" type="Label" parent="Margin/HBox/ControlPanel/VBox"]
+layout_mode = 2
+text = "Control de lentes"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 20
+theme_override_colors/font_color = Color(0.85, 0.9, 1, 1)
+
+[node name="Separator1" type="HSeparator" parent="Margin/HBox/ControlPanel/VBox"]
+layout_mode = 2
+
+[node name="EyeLabel" type="Label" parent="Margin/HBox/ControlPanel/VBox"]
+layout_mode = 2
+text = "Aplicar a:"
+theme_override_colors/font_color = Color(0.7, 0.75, 0.85, 1)
+
+[node name="EyeOption" type="OptionButton" parent="Margin/HBox/ControlPanel/VBox"]
+layout_mode = 2
+
+[node name="Separator2" type="HSeparator" parent="Margin/HBox/ControlPanel/VBox"]
+layout_mode = 2
+
+[node name="LensListTitle" type="Label" parent="Margin/HBox/ControlPanel/VBox"]
+layout_mode = 2
+text = "Lentes disponibles:"
+theme_override_colors/font_color = Color(0.7, 0.75, 0.85, 1)
+
+[node name="LensListScroll" type="ScrollContainer" parent="Margin/HBox/ControlPanel/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="LensList" type="VBoxContainer" parent="Margin/HBox/ControlPanel/VBox/LensListScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Separator3" type="HSeparator" parent="Margin/HBox/ControlPanel/VBox"]
+layout_mode = 2
+
+[node name="StateLabel" type="Label" parent="Margin/HBox/ControlPanel/VBox"]
+layout_mode = 2
+text = "Estado actual:\n  L: -\n  R: -"
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.6, 0.85, 0.7, 1)

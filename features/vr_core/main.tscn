@@ -157,36 +157,39 @@ mesh = SubResource("QuadMesh_postprocess")
 material_override = SubResource("ShaderMaterial_postprocess")
 
 [node name="FpsHud" type="Label3D" parent="XROrigin3D/XRCamera3D"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.35, 0.25, -1)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.22, 0.15, -1)
+pixel_size = 0.0015
 billboard = 1
 no_depth_test = true
 fixed_size = true
 render_priority = 10
 text = "FPS: --"
 font_size = 28
-outline_size = 8
+outline_size = 6
 modulate = Color(1, 1, 0.4, 1)
 
 [node name="SyncHud" type="Label3D" parent="XROrigin3D/XRCamera3D"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.4, 0.25, -1)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.25, 0.15, -1)
+pixel_size = 0.0015
 billboard = 1
 no_depth_test = true
 fixed_size = true
 render_priority = 10
 text = "catalogo: --"
-font_size = 24
-outline_size = 6
+font_size = 22
+outline_size = 4
 modulate = Color(0.6, 1, 0.7, 1)
 
 [node name="StreamHud" type="Label3D" parent="XROrigin3D/XRCamera3D"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.35, -0.05, -1)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.22, -0.04, -1)
+pixel_size = 0.0015
 billboard = 1
 no_depth_test = true
 fixed_size = true
 render_priority = 10
 text = "stream: --"
 font_size = 22
-outline_size = 6
+outline_size = 4
 modulate = Color(0.7, 0.85, 1, 1)
 
 [node name="FadeQuad" type="MeshInstance3D" parent="XROrigin3D/XRCamera3D"]
