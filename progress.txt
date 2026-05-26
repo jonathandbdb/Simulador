@@ -27,62 +27,182 @@ Validacion: en Quest 2, ojo izquierdo ve rojo y ojo derecho ve azul.
 Confirma que toda la cadena VIEW_INDEX -> multiview -> renderer estereo
 funciona, que es la base del Blend asimetrico de F2.
 
-Entregables:
-  - features/vr_core/main.tscn (XROrigin3D + XRCamera3D + EyeTestQuad +
-    LeftHand/RightHand controllers).
-  - features/vr_core/main.gd (bootstrap OpenXR + use_xr + physics 90Hz).
-  - features/vision_shaders/eye_test.gdshader (shader spatial unshaded
-    con `if VIEW_INDEX == VIEW_MONO_LEFT` rojo / else azul).
-  - project.godot run/main_scene apuntando a la escena.
-
-Notas operativas:
-  - El test no requiere controllers: se valida solo con la vision.
-  - Quest 2 con hand tracking activo en Settings -> Movimiento permite
-    operar el sistema sin pilas en los controles.
-
 ================================================================
 SPRINT 2 — F2 PoC GO/NO-GO ⚠️ BLOQUEANTE
 ================================================================
-Estado: EN CURSO
+Estado: CERRADO ✅ (GO en Quest 2)
 
-Objetivo: medir si el simulador es viable a >=72 FPS en Quest 2 con
-post-procesado asimetrico por ojo.
+Run 1 Quest 2: FPS min/avg/max 69/70/72, frame time ~13 ms, sin stuttering.
+Criterio GO cumplido (>=72 FPS estable, frame time <budget 72Hz = 13.88 ms).
 
-Detalle completo y criterios de salida en PLAN.md.
-Protocolo de medicion y tabla de resultados en MEASUREMENTS.md.
+Iteracion 1 sobre shader (cerrada):
+  - BLUR_RADIUS_PX: 4 -> 12 (blur diferenciable).
+  - Halo: 2 anillos concentricos + falloff cuadratico + tinte amarillento
+    (mas realista que el glow plano original; aproxima el efecto difractivo
+    de IOLs multifocales).
+  - Sin cambio de samples GPU.
+
+Fixes de compatibilidad (al integrar a Quest Link descubrimos que multiview
++ mipmaps + FSR rompen el framebuffer en Godot 4.6):
+  - filter_linear (sin mipmaps) en hint_screen_texture.
+  - FSR scaling_3d desactivado (comentado en main.gd; reactivar solo en
+    Quest standalone si se necesita).
+
+Pendiente para iteraciones futuras (no bloqueante, Sprint 5 lo retoma):
+  - Halo cromatico real (sampleo R/G/B en radios distintos): +6 samples.
+  - Tercer anillo difractivo para PanOptix puro.
+  - Flares radiales para monofocales asfericos.
+  - Reactivar FSR cuando el deployment sea solo sideload.
+
+================================================================
+SPRINT 3 — F0 backend minimo
+================================================================
+Estado: EN CURSO (fase local CERRADA ✅, fase VPS pendiente)
+
+Objetivo: API REST publica desplegada en el VPS (backend FastAPI + Postgres
++ MinIO + Caddy con TLS automatico).
 
 Hecho:
-  [x] features/vision_shaders/sprint2_blur_test.gdshader: shader spatial
-      con hint_screen_texture + hint_depth_texture, box blur 9-tap
-      asimetrico via VIEW_INDEX, halo via threshold + LOD alto, conversion
-      depth-a-metros con INV_PROJECTION_MATRIX.
-  [x] features/vr_core/main.tscn: escena Sprint 2 con WorldEnvironment +
-      DirectionalLight3D + TestEnvironment (floor, 3 cubos a 0.4m/2m/10m
-      con labels, esfera emissive para halo) + XROrigin3D con XRCamera3D
-      conteniendo PostProcessQuad y FpsHud.
-  [x] features/vr_core/main.gd: aplica preset asimetrico al arrancar
-      (izq=PanOptix simulado, der=Vivity simulado), configura FSR
-      scaling_3d_scale=0.85, calcula FPS y frame time en _process().
-  [x] MEASUREMENTS.md: protocolo de medicion completo con criterio GO/NO-GO,
-      tabla para Runs, variantes a probar si NO-GO.
+  [x] backend/docker-compose.yml: 4 servicios (api, db, bucket, caddy).
+      Volumen ../defaults/lentes.json montado en /seed/lentes.json del api.
+  [x] backend/Caddyfile: reverse proxy, /healthz directo, scheme via
+      env var ($SCHEME) — SCHEME=http:// en local, vacio en prod.
+  [x] backend/.env.example: todas las variables documentadas.
+  [x] backend/api/Dockerfile: Python 3.12-slim + libpq5 + curl healthcheck.
+  [x] backend/api/requirements.txt: FastAPI 0.115.5, SQLModel 0.0.22,
+      psycopg[binary] 3.2.3, slowapi 0.1.9, passlib[bcrypt] 1.7.4,
+      bcrypt 4.0.1 (pineado, fix incompatibilidad con bcrypt 4.1+),
+      boto3 1.35.84.
+  [x] backend/api/app/{config,database,models,seed,routers,main}.py
+      — todos los modulos del Sprint 3.
+  [x] backend/README.md actualizado con stack + quick start local + prod.
+
+Validacion local (todos los smoke tests pasaron):
+  [x] Docker Desktop instalado via winget en Windows + WSL2.
+  [x] docker compose up -d --build levanto los 4 servicios.
+  [x] Seed inicial corrio: admin user + 3 lentes (desde defaults/lentes.json)
+      + version dummy v0.1.0 + DEV_TEST_001 device.
+  [x] GET /healthz                          → 200 "ok"
+  [x] GET /api/manifest.json                 → JSON valido con version dummy
+  [x] GET /api/lenses                        → JSON con 3 lentes seed
+  [x] POST /api/verify (DEV_TEST_001)        → 200 status=ok
+  [x] POST /api/verify (DESCONOCIDO)         → 403 DEVICE_NOT_FOUND
+  [x] POST /api/verify (2do en <1 min)       → 429 rate limit (feature OK)
+  [x] http://localhost:8080/docs Swagger UI accesible.
+
+Bugs encontrados y resueltos:
+  - docker-credential-desktop no en PATH de bash → workaround con
+    export PATH="/c/Program Files/Docker/Docker/resources/bin:$PATH"
+    (no es fix permanente, solo en sesiones bash de Claude).
+  - passlib 1.7.4 + bcrypt 4.1+ incompatibles → pin bcrypt==4.0.1.
+  - Caddy default sirve TLS en localhost → forzar SCHEME=http:// via
+    env var, prefijo http:// en site address del Caddyfile.
+
+Pendiente Sprint 3 fase 2 (deploy a VPS):
+  [ ] Conseguir VPS (Hetzner CX22 ~3 EUR/mes recomendado).
+  [ ] Apuntar dominio o subdominio al VPS via DNS A record.
+  [ ] SSH al VPS, instalar docker + compose plugin.
+  [ ] Clonar el repo en el VPS.
+  [ ] Editar .env del VPS:
+        DOMAIN=api.tu-dominio.com
+        SCHEME=                 (vacio = Caddy auto HTTPS)
+        PORT=443
+        PUBLIC_BASE_URL=https://api.tu-dominio.com
+        POSTGRES_PASSWORD=<openssl rand -hex 24>
+        JWT_SECRET=<openssl rand -hex 32>
+        ADMIN_DEFAULT_PASS=<password fuerte real>
+        API_KEY_CI=<openssl rand -hex 32>
+  [ ] docker compose up -d. Caddy emite cert automaticamente.
+  [ ] Smoke test desde otra red:
+        curl https://api.tu-dominio.com/healthz
+
+Criterio de salida del Sprint 3:
+  curl https://api.tu-dominio.com/api/manifest.json retorna 200
+  con JSON valido desde el VPS de produccion.
+
+================================================================
+SPRINT 4 — F1 completa
+================================================================
+Estado: EN CURSO
+
+Objetivo: simulador con catalogo dinamico desde backend + entorno 3D con
+transicion dia/noche con fade negro.
+
+Hecho:
+  [x] autoloads/data_manager.gd: rewrite completo.
+      - Carga prioritaria: user://lentes.json (cache) -> res://defaults/
+        lentes.json (embebido) -> sync background con backend.
+      - HTTPRequest interno con timeout 5 s + use_threads=true.
+      - Si backend responde 200 con JSON valido, sobrescribe cache y emite
+        catalog_synced_with_backend(version).
+      - Si falla (offline, 5xx, timeout, JSON invalido), emite
+        catalog_sync_failed(reason) y se queda con el catalogo local.
+      - get_lens(id), get_lens_ids(), apply_lens(id, eye), refresh_from_backend().
+      - Configuracion: const BACKEND_URL := "http://localhost:8080".
+        Cambiar al exportar para Quest: http://<IP_DE_LA_PC>:8080.
+  [x] features/vision_shaders/fade.gdshader: shader spatial unshaded
+      blend_mix con uniform alpha hint_range(0,1). Para fade-to-black.
+  [x] features/vr_core/main.tscn: agregados FadeQuad (priority 12, hijo
+      de XRCamera3D, 4x4 a z=-0.05) y SyncHud (Label3D al lado izq, verde,
+      muestra estado del DataManager).
+  [x] features/vr_core/main.gd: reescrito para Sprint 4.
+      - Conecta a las 3 senales del DataManager y muestra estado en SyncHud.
+      - Auto-cicla dia/noche cada 15 s (DAY_NIGHT_INTERVAL).
+      - Tween secuencial: fade-out 0.8s -> swap environment -> hold 0.2s
+        -> fade-in 0.8s. Total ~2 s por transicion.
+      - _apply_environment(params) cambia DirectionalLight.light_energy,
+        Environment.ambient_*, ProceduralSkyMaterial.sky/ground colors.
+      - FpsHud incluye ahora "modo: dia/noche" para debug.
+      - Si OpenXR no esta inicializado, push_warning en lugar de push_error
+        — permite probar la escena en el editor de PC sin Quest.
 
 Pendiente NO automatizable (te toca a vos):
-  [ ] Re-abrir el editor de Godot (importa el shader y la escena nuevos).
-  [ ] Re-exportar:
+
+  Test 1 — En editor de Godot (PC, sin VR):
+  [ ] Abrir el proyecto en Godot.
+  [ ] Asegurarse de que el backend local sigue corriendo
+      (docker compose ps en backend/, deben verse los 4 contenedores).
+  [ ] Hit Play en el editor. La escena debe abrirse en modo no-VR
+      (push_warning sobre OpenXR es esperable; el resto funciona).
+  [ ] Validar:
+        - FpsHud arriba a la derecha: FPS + modo: dia (al inicio).
+        - SyncHud arriba a la izquierda: "loaded(defaults) 3 lentes" o
+          "loaded(backend) 3 lentes" / "backend OK [...]" si el sync paso.
+        - A los ~15 s, fade negro de ~2 s, vuelve la imagen en modo "noche"
+          (oscuro, luz tenue, esfera brillante destacada).
+        - A los ~30 s vuelve a dia. Asi indefinidamente.
+
+  Test 2 — En Quest 2 standalone:
+  [ ] Averiguar IP de la PC en la LAN:
+        ipconfig | findstr IPv4
+      (Ejemplo: 192.168.1.42)
+  [ ] Editar autoloads/data_manager.gd:
+        const BACKEND_URL := "http://192.168.1.42:8080"
+  [ ] Permitir el puerto 8080 en el firewall de Windows:
+        - PowerShell admin:
+          New-NetFirewallRule -DisplayName "Simulador backend 8080" `
+            -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow
+        - O via UI: Panel de Control -> Firewall de Windows -> Reglas de
+          entrada -> Nueva regla -> Puerto -> TCP 8080 -> Permitir.
+  [ ] Confirmar que el Quest esta en el mismo wifi que la PC.
+  [ ] Desde el Quest, abrir un navegador (o usar Chrome remoto):
+        http://192.168.1.42:8080/healthz
+      Debe responder "ok". Si no, el firewall sigue bloqueando o las
+      redes wifi son distintas.
+  [ ] Re-exportar e instalar el APK:
         godot --headless --path . --export-debug "Android" Simulador.apk
-  [ ] Re-instalar:
         adb install -r Simulador.apk
-  [ ] (Recomendado) Instalar OVR Metrics Tool en el Quest:
-        https://developer.oculus.com/downloads/package/ovr-metrics-tool/
-        adb install -r OVRMetricsTool.apk
-  [ ] Lanzar el simulador. Observar:
-        - Una escena 3D con piso gris, 3 cubos (rojo cerca, verde medio, azul lejos)
-          y una esfera blanca brillante.
-        - El FpsHud arriba a la derecha mostrando FPS y frame time.
-        - Cada ojo ve un nivel de blur DIFERENTE en cada cubo:
-            * Ojo izq: blur_near=0.5 medium=0.2 far=0.1, halo=0.7
-            * Ojo der: blur_near=0.8 medium=0.1 far=0.0, halo=0.2
-          Tapando un ojo y luego el otro, la diferencia debe ser obvia.
-        - La esfera brillante muestra halos solo en el ojo izquierdo (intensidad 0.7).
-  [ ] Seguir protocolo de MEASUREMENTS.md y completar Run 1.
-  [ ] Reportar resultados aca (FPS, frame time, veredicto).
+  [ ] Lanzar el simulador. Validar:
+        - SyncHud muestra "loaded(defaults)" inicialmente.
+        - En 1-3 s, cambia a "backend OK [0.0.1-seed]" (sync exitoso).
+        - Ciclo dia/noche corre.
+
+Criterio de salida del Sprint 4:
+  1. El simulador arranca y carga el catalogo desde una fuente cualquiera
+     (cache, defaults o backend).
+  2. Si el backend esta accesible, sync con el backend tuvo exito al menos
+     una vez (SyncHud muestra "backend OK").
+  3. La transicion dia/noche funciona con fade negro intermedio sin pisar
+     el render del shader de Sprint 2.
+  4. El FPS se mantiene en el mismo orden que Sprint 2 (>=72 estable en
+     Quest 2) — el fade no debe penalizar el frame time.

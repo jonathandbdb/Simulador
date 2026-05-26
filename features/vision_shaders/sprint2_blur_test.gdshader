@@ -1,22 +1,16 @@
 // sprint2_blur_test.gdshader
 //
-// PoC del Sprint 2: validar que el post-procesado asimetrico por ojo corre
-// a >=72 FPS estables en Quest 2 con frame time GPU < 11 ms.
+// PoC del Sprint 2 - iteracion 2: blur mas pronunciado + halo con anillos
+// concentricos y tinte cromatico (efecto difractivo de IOL multifocal).
 //
 // Que hace:
 //   1. Lee SCREEN_TEXTURE y DEPTH_TEXTURE.
-//   2. Convierte el depth a distancia real en metros usando INV_PROJECTION_MATRIX.
-//   3. Calcula la cantidad de blur en funcion de los 3 planos focales (cerca/media/lejos).
-//   4. Aplica box blur 9-tap proporcional a la cantidad de blur.
-//   5. Suma halo en zonas brillantes con muestras lineales (sin mipmaps).
-//   6. Bifurca con VIEW_INDEX: cada ojo usa su propio set de parametros.
-//
-// El shader corre en un Quad delante del XRCamera3D, modo transparente sin profundidad.
-// hint_screen_texture captura el render del scene 3D antes del pase transparente,
-// asi que aca leemos la escena ya renderizada y aplicamos el efecto encima.
-//
-// NOTA: filter_linear (NO mipmap). Multiview + mipmap en hint_screen_texture
-// causa "Layers of our texture doesn't match view count" en Godot 4.6 con Quest Link.
+//   2. Convierte depth a distancia real en metros (INV_PROJECTION_MATRIX).
+//   3. Calcula blur por distancia a los 3 planos focales.
+//   4. Aplica box blur 9-tap con radio mayor (12 px) para diferenciacion visible.
+//   5. Halo realista: 2 anillos concentricos (efecto difraccion), falloff
+//      cuadratico, tinte amarillento suave.
+//   6. Bifurca con VIEW_INDEX para Blend asimetrico.
 
 shader_type spatial;
 render_mode unshaded, depth_test_disabled, depth_draw_never, blend_mix, cull_disabled;
@@ -24,12 +18,12 @@ render_mode unshaded, depth_test_disabled, depth_draw_never, blend_mix, cull_dis
 uniform sampler2D screen_texture : hint_screen_texture, filter_linear, repeat_disable;
 uniform sampler2D depth_texture  : hint_depth_texture,  filter_nearest, repeat_disable;
 
-// === Planos focales (en metros, espacio de mundo) ===
+// === Planos focales (metros, espacio mundo) ===
 uniform float near_distance   : hint_range(0.1, 5.0)  = 0.4;
 uniform float medium_distance : hint_range(0.5, 10.0) = 2.0;
 uniform float far_distance    : hint_range(2.0, 50.0) = 10.0;
 
-// === Intensidad de blur por ojo en cada plano focal (0 = nitido, 1 = blur maximo) ===
+// === Blur por ojo (0 = nitido, 1 = blur maximo) ===
 uniform float blur_near_l   : hint_range(0.0, 1.0) = 0.0;
 uniform float blur_medium_l : hint_range(0.0, 1.0) = 0.0;
 uniform float blur_far_l    : hint_range(0.0, 1.0) = 0.0;
@@ -37,13 +31,18 @@ uniform float blur_near_r   : hint_range(0.0, 1.0) = 0.0;
 uniform float blur_medium_r : hint_range(0.0, 1.0) = 0.0;
 uniform float blur_far_r    : hint_range(0.0, 1.0) = 0.0;
 
-// === Halo nocturno ===
+// === Halo ===
 uniform float halo_intensity_l : hint_range(0.0, 1.0) = 0.0;
 uniform float halo_intensity_r : hint_range(0.0, 1.0) = 0.0;
-uniform float halo_threshold   : hint_range(0.0, 1.0) = 0.8;
+uniform float halo_threshold   : hint_range(0.0, 1.0) = 0.75;
+uniform vec3  halo_tint = vec3(1.05, 1.0, 0.78);  // amarillo-blanco realista
 
-const float BLUR_RADIUS_PX = 4.0;
-const float HALO_RADIUS_PX = 24.0;
+// === Constantes de muestreo ===
+const float BLUR_RADIUS_PX     = 12.0;   // antes 4.0 — diferenciacion mas visible
+const float HALO_INNER_RING_PX = 18.0;   // primer anillo difractivo
+const float HALO_OUTER_RING_PX = 32.0;   // segundo anillo difractivo (1.8x)
+const float HALO_INNER_WEIGHT  = 1.0;
+const float HALO_OUTER_WEIGHT  = 0.4;
 
 
 float linear_depth_meters(float raw_depth, vec2 uv, mat4 inv_proj) {
@@ -81,33 +80,38 @@ vec3 box_blur_9tap(vec2 uv, vec2 texel, float radius_px) {
 	return sum / 9.0;
 }
 
-vec3 halo_sample(vec2 uv, vec2 texel, float intensity) {
+// Halo realista: dos anillos concentricos alrededor del pixel actual.
+// Cada anillo muestrea 8 direcciones; solo contribuyen pixeles brillantes.
+// Falloff cuadratico simula la caida fisica de la luz con r^2.
+vec3 halo_rings(vec2 uv, vec2 texel, float intensity) {
 	if (intensity < 0.01) {
 		return vec3(0.0);
 	}
-	// 8 muestras en ring + 8 muestras en ring exterior, filter linear (sin mipmaps).
-	// Solo contribuyen las que superan halo_threshold.
-	vec3 halo = vec3(0.0);
-	float inv_above = 1.0 / max(1.0 - halo_threshold, 0.001);
-	float radius_a = HALO_RADIUS_PX * intensity;
-	float radius_b = radius_a * 1.6;
 	vec2 dirs[8] = vec2[8](
 		vec2( 1.0,  0.0), vec2(-1.0,  0.0), vec2( 0.0,  1.0), vec2( 0.0, -1.0),
 		vec2( 0.7,  0.7), vec2(-0.7,  0.7), vec2( 0.7, -0.7), vec2(-0.7, -0.7)
 	);
+	float radius_inner = HALO_INNER_RING_PX * intensity;
+	float radius_outer = HALO_OUTER_RING_PX * intensity;
+	float inv_above = 1.0 / max(1.0 - halo_threshold, 0.001);
+
+	vec3 halo = vec3(0.0);
 	for (int i = 0; i < 8; i++) {
-		vec3 ca = texture(screen_texture, uv + dirs[i] * texel * radius_a).rgb;
-		vec3 cb = texture(screen_texture, uv + dirs[i] * texel * radius_b).rgb;
-		float la = max(ca.r, max(ca.g, ca.b));
-		float lb = max(cb.r, max(cb.g, cb.b));
-		if (la > halo_threshold) {
-			halo += ca * (la - halo_threshold) * inv_above;
+		vec3 ci = texture(screen_texture, uv + dirs[i] * texel * radius_inner).rgb;
+		vec3 co = texture(screen_texture, uv + dirs[i] * texel * radius_outer).rgb;
+		float li = max(ci.r, max(ci.g, ci.b));
+		float lo = max(co.r, max(co.g, co.b));
+		if (li > halo_threshold) {
+			float strength = (li - halo_threshold) * inv_above;
+			halo += ci * (strength * strength) * HALO_INNER_WEIGHT;
 		}
-		if (lb > halo_threshold) {
-			halo += cb * (lb - halo_threshold) * inv_above * 0.5;
+		if (lo > halo_threshold) {
+			float strength = (lo - halo_threshold) * inv_above;
+			halo += co * (strength * strength) * HALO_OUTER_WEIGHT;
 		}
 	}
-	return (halo / 16.0) * intensity;
+	// Promediar y aplicar tinte cromatico del halo.
+	return (halo / 8.0) * intensity * halo_tint;
 }
 
 void fragment() {
@@ -130,7 +134,7 @@ void fragment() {
 	vec3 base = texture(screen_texture, uv).rgb;
 	vec3 blurred = box_blur_9tap(uv, texel, BLUR_RADIUS_PX * blur_amount);
 	vec3 color = mix(base, blurred, blur_amount);
-	color += halo_sample(uv, texel, halo_amount);
+	color += halo_rings(uv, texel, halo_amount);
 
 	ALBEDO = color;
 	ALPHA = 1.0;

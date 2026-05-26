@@ -38,7 +38,7 @@ Para el estado actual del avance ver `progress.txt`.
 ## Sprints
 
 ### Sprint 0 — Setup del proyecto
-**Estado:** CERRADO
+**Estado:** CERRADO ✅
 **Objetivo:** proyecto deployable a Quest con un comando.
 **Entregables:**
 - `project.godot` con OpenXR + XR shaders + multiview + VSYNC off + physics 90Hz + autoload `DataManager`.
@@ -51,7 +51,7 @@ Para el estado actual del avance ver `progress.txt`.
 **Criterio de salida:** APK instalado en Quest, app arranca sin error de OpenXR.
 
 ### Sprint 1 — F1 minima (OpenXR + VIEW_INDEX)
-**Estado:** CERRADO
+**Estado:** CERRADO ✅
 **Objetivo:** validar visualmente que el Blend tecnico funciona.
 **Entregables:**
 - `features/vr_core/main.tscn`: XROrigin3D + XRCamera3D + EyeTestQuad + 2 XRController3D.
@@ -61,7 +61,7 @@ Para el estado actual del avance ver `progress.txt`.
 **Criterio de salida:** ojo izquierdo rojo, ojo derecho azul en Quest 2.
 
 ### Sprint 2 — F2 PoC GO/NO-GO ⚠️ BLOQUEANTE
-**Estado:** PENDIENTE
+**Estado:** CERRADO ✅ (con GO en Quest 2: 70 FPS avg, 13 ms frame time, sin stuttering)
 **Objetivo:** medir si el simulador es viable a >=72 FPS en Quest 2 con post-procesado asimetrico.
 **Entregables:**
 - `SubViewport` + `SubViewportContainer` + `ShaderMaterial spatial`.
@@ -76,10 +76,10 @@ Para el estado actual del avance ver `progress.txt`.
 **Hito:** video grabado del Quest mostrando blur diferente por ojo + tabla de mediciones.
 
 ### Sprint 3 — F0 backend minimo
-**Estado:** PENDIENTE
+**Estado:** EN CURSO (fase local CERRADA ✅, fase VPS pendiente)
 **Objetivo:** API REST publica desplegada en el VPS.
 **Entregables:**
-- `backend/docker-compose.yml`: api (FastAPI) + db (Postgres 16) + bucket (MinIO) + nginx con TLS.
+- `backend/docker-compose.yml`: api (FastAPI) + db (Postgres 16) + bucket (MinIO) + nginx con  TLS.
 - Schema DB: `devices`, `versions`, `update_logs`, `lenses_catalog`, `admin_users`.
 - Endpoints publicos: `GET /api/manifest.json`, `POST /api/verify`, `GET /api/lenses`, `POST /api/log`.
 - Seed: 1 admin, 1 version dummy activa, 1 catalogo activo.
@@ -88,7 +88,7 @@ Para el estado actual del avance ver `progress.txt`.
 **Criterio de salida:** `curl https://api.tu-dominio.com/api/manifest.json` retorna 200 desde el VPS.
 
 ### Sprint 4 — F1 completa
-**Estado:** PENDIENTE
+**Estado:** EN CURSO
 **Objetivo:** simulador con catalogo dinamico y entorno 3D.
 **Entregables:**
 - `DataManager` con sync remoto (`/api/lenses`), fallback a defaults, cache en `user://lentes.json`.

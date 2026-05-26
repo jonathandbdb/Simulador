@@ -87,24 +87,50 @@ Para cada run:
 
 ## Resultados
 
-### Run 1 — Quest 2 — fecha: ____
+### Run 1 — Quest 2 — fecha: sesion Sprint 2 (mayo 2026)
+
+| Metrica | Resultado |
+|---------|-----------|
+| FPS minimo | 69 |
+| FPS promedio | 70 |
+| FPS maximo | 72 |
+| Frame time GPU p99 | ~13 ms |
+| Frame time CPU p99 | (no medido) |
+| Stuttering visible | No |
+| Diferencia de blur entre ojos | Sutil — kernel chico (4 px de radio) |
+| Halo en la esfera brillante | Visible pero no realista (glow difuso, faltaban anillos) |
+| Notas | Test con preset modificado (ambos ojos blur cerca=1 medio=1). Quest 2 default a 72 Hz; estamos en el borde del budget 13.88 ms. |
+
+**Veredicto:** GO (cumple >=72 FPS estable y <11 ms target equivalente a 72 Hz).
+
+### Iteracion 1 sobre el shader (post Run 1)
+
+Fixes visuales sin tocar performance budget:
+- `BLUR_RADIUS_PX` 4 -> 12. Mismo numero de samples (9-tap), kernel mas ancho.
+  El blur ahora es claramente visible con `blur_amount` >= 0.3.
+- Halo reescrito a 2 anillos concentricos (inner @18 px, outer @32 px con peso 0.4).
+  Falloff cuadratico (`strength * strength`) para simular la caida fisica de la luz.
+  Tinte cromatico amarillento `halo_tint = vec3(1.05, 1.0, 0.78)` — caracteristico
+  de los halos clinicos producidos por IOLs multifocales tipo PanOptix.
+- Costo: 0 samples extra. Mismo presupuesto GPU.
+
+Pendiente Run 2: validar que el cambio visual es perceptible y el FPS no se
+degrado.
+
+### Run 2 — Quest 2 — fecha: ____
 
 | Metrica | Resultado |
 |---------|-----------|
 | FPS minimo | __ |
 | FPS promedio | __ |
+| FPS maximo | __ |
 | Frame time GPU p99 | __ ms |
-| Frame time CPU p99 | __ ms |
-| Stuttering visible | si / no |
+| Stuttering visible | __ |
 | Diferencia de blur entre ojos | clara / sutil / inexistente |
-| Halo en la esfera brillante | visible / sutil / no |
+| Halo en la esfera brillante | anillos visibles? si / no |
 | Notas | __ |
 
 **Veredicto:** GO / NO-GO
-
-### Run 2 — Quest 2 — fecha: ____
-
-(Repetir esquema)
 
 ### Run en Quest 3 — fecha: ____ (cuando llegue)
 

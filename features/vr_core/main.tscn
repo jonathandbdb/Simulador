@@ -1,7 +1,8 @@
-[gd_scene load_steps=27 format=3]
+[gd_scene load_steps=30 format=3]
 
 [ext_resource type="Script" path="res://features/vr_core/main.gd" id="1_main"]
 [ext_resource type="Shader" path="res://features/vision_shaders/sprint2_blur_test.gdshader" id="2_shader"]
+[ext_resource type="Shader" path="res://features/vision_shaders/fade.gdshader" id="3_fade"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
 sky_top_color = Color(0.18, 0.32, 0.55, 1)
@@ -71,6 +72,14 @@ shader_parameter/blur_far_r = 0.0
 shader_parameter/halo_intensity_l = 0.0
 shader_parameter/halo_intensity_r = 0.0
 shader_parameter/halo_threshold = 0.8
+
+[sub_resource type="QuadMesh" id="QuadMesh_fade"]
+size = Vector2(4, 4)
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_fade"]
+render_priority = 12
+shader = ExtResource("3_fade")
+shader_parameter/alpha = 0.0
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -157,6 +166,23 @@ text = "FPS: --"
 font_size = 28
 outline_size = 8
 modulate = Color(1, 1, 0.4, 1)
+
+[node name="SyncHud" type="Label3D" parent="XROrigin3D/XRCamera3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.4, 0.25, -1)
+billboard = 1
+no_depth_test = true
+fixed_size = true
+render_priority = 10
+text = "catalogo: --"
+font_size = 24
+outline_size = 6
+modulate = Color(0.6, 1, 0.7, 1)
+
+[node name="FadeQuad" type="MeshInstance3D" parent="XROrigin3D/XRCamera3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.05)
+extra_cull_margin = 16384.0
+mesh = SubResource("QuadMesh_fade")
+material_override = SubResource("ShaderMaterial_fade")
 
 [node name="LeftHand" type="XRController3D" parent="XROrigin3D"]
 tracker = &"left_hand"
