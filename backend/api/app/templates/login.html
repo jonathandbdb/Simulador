@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block subtitle %} — {{ t('login.title') }}{% endblock %}
+{% block content %}
+<div class="min-h-[70vh] flex items-center justify-center">
+  <div class="card w-full max-w-md p-8">
+    <h1 class="text-2xl font-semibold mb-6">{{ t('login.title') }}</h1>
+    {% if error %}
+    <div class="mb-4 px-3 py-2 rounded bg-red-900/50 border border-red-700 text-red-200 text-sm">
+      {{ t('login.error') }}
+    </div>
+    {% endif %}
+    <form method="post" action="/admin/login" class="space-y-4">
+      <label class="block">
+        <span class="text-sm text-slate-400">{{ t('login.username') }}</span>
+        <input class="input mt-1" name="username" autofocus required />
+      </label>
+      <label class="block">
+        <span class="text-sm text-slate-400">{{ t('login.password') }}</span>
+        <input class="input mt-1" name="password" type="password" required />
+      </label>
+      <button class="btn btn-primary w-full" type="submit">{{ t('login.submit') }}</button>
+    </form>
+    <div class="mt-6 text-xs text-slate-500 flex justify-center gap-3">
+      {% for code in supported_langs %}
+        <a href="/admin/lang?code={{ code }}&next=/admin/login"
+           class="{{ 'text-blue-400' if code == lang else 'hover:text-slate-300' }}">{{ code|upper }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

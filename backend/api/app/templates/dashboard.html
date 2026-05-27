@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block subtitle %} — {{ t('dash.title') }}{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold mb-6">{{ t('dash.title') }}</h1>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  <div class="card p-5">
+    <div class="text-sm text-slate-400">{{ t('dash.devices_total') }}</div>
+    <div class="text-3xl font-bold mt-2">{{ devices_total }}</div>
+    <div class="text-xs text-slate-500 mt-1">{{ devices_active }} {{ t('dash.devices_active')|lower }}</div>
+  </div>
+  <div class="card p-5">
+    <div class="text-sm text-slate-400">{{ t('dash.active_version') }}</div>
+    <div class="text-xl font-semibold mt-2">
+      {% if active_version %}APK {{ active_version.apk_version }}<br/><span class="text-sm text-slate-400">PCK {{ active_version.asset_version }}</span>{% else %}{{ t('dash.no_active') }}{% endif %}
+    </div>
+  </div>
+  <div class="card p-5">
+    <div class="text-sm text-slate-400">{{ t('dash.active_catalog') }}</div>
+    <div class="text-xl font-semibold mt-2">
+      {% if active_catalog %}v{{ active_catalog.version }}{% else %}{{ t('dash.no_active') }}{% endif %}
+    </div>
+  </div>
+  <div class="card p-5">
+    <div class="text-sm text-slate-400">{{ t('nav.logs') }}</div>
+    <div class="text-3xl font-bold mt-2">{{ logs_total }}</div>
+  </div>
+</div>
+
+<div class="card p-5">
+  <h2 class="text-lg font-semibold mb-4">{{ t('dash.last_events') }}</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>{{ t('log.timestamp') }}</th>
+        <th>{{ t('dev.device_id') }}</th>
+        <th>{{ t('log.event') }}</th>
+        <th>{{ t('log.detail') }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in recent_logs %}
+      <tr>
+        <td class="text-slate-400 whitespace-nowrap">{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td class="font-mono text-xs">{{ log.device_id }}</td>
+        <td>{{ log.event }}</td>
+        <td class="text-slate-400 truncate max-w-md">{{ log.detail }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="text-center text-slate-500 py-6">—</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

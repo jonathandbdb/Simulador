@@ -22,7 +22,11 @@ extends Control
 const DEFAULT_HOST := "192.168.2.30"
 const DEFAULT_PORT := 9090
 
-@onready var texture_rect: TextureRect = $Margin/HBox/StreamPanel/VBox/StreamFrame/TextureRect
+@onready var texture_rect: TextureRect = $Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/LeftEyePane/TextureRect
+@onready var right_texture_rect: TextureRect = $Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/RightEyePane/TextureRect
+@onready var left_eye_label: Label = $Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/LeftEyePane/LeftEyeLabel
+@onready var right_eye_label: Label = $Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/RightEyePane/RightEyeLabel
+@onready var right_eye_pane: VBoxContainer = $Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/RightEyePane
 @onready var status_label: Label = $Margin/HBox/StreamPanel/VBox/StatusLabel
 @onready var host_edit: LineEdit = $Margin/HBox/StreamPanel/VBox/TopBar/HostEdit
 @onready var connect_button: Button = $Margin/HBox/StreamPanel/VBox/TopBar/ConnectButton
@@ -32,12 +36,20 @@ const DEFAULT_PORT := 9090
 @onready var state_label: Label = $Margin/HBox/ControlPanel/VBox/StateLabel
 
 var _peer := WebSocketPeer.new()
-var _texture: ImageTexture
+# Texturas separadas por ojo (el visor manda streams independientes en
+# modo blend). En modo "both" ambas referencian al mismo Image refresh.
+var _texture_left: ImageTexture
+var _texture_right: ImageTexture
 var _frames_received: int = 0
 var _bytes_received: int = 0
 var _connecting: bool = false
 var _catalog_lenses: Array = []
+var _lenses_by_id: Dictionary = {}
 var _vision_state: Dictionary = {}
+
+const HEADER_BOTH := 0x42  # 'B'
+const HEADER_LEFT := 0x4C  # 'L'
+const HEADER_RIGHT := 0x52 # 'R'
 
 
 func _ready() -> void:
@@ -54,6 +66,11 @@ func _ready() -> void:
 	eye_option.add_item("Izquierdo", 1)
 	eye_option.add_item("Derecho", 2)
 	eye_option.selected = 0
+
+	# Sin shader client-side: el visor ya manda streams con el efecto de
+	# lente aplicado server-side (StreamingCapture / eye_preview_spatial).
+	texture_rect.material = null
+	right_texture_rect.material = null
 
 	connect_button.pressed.connect(_on_connect_pressed)
 	_update_status("desconectado")
@@ -143,6 +160,10 @@ func _on_text_received(text: String) -> void:
 	match msg_type:
 		"hello":
 			_catalog_lenses = parsed.get("lenses", [])
+			_lenses_by_id.clear()
+			for lens in _catalog_lenses:
+				if lens is Dictionary and lens.has("id"):
+					_lenses_by_id[String(lens["id"])] = lens
 			_vision_state = parsed.get("vision_state", {})
 			_rebuild_lens_list()
 			_update_state_label()
@@ -155,15 +176,40 @@ func _on_text_received(text: String) -> void:
 
 
 func _on_frame_received(data: PackedByteArray) -> void:
+	if data.size() < 2:
+		return
+	# Header de 1 byte: 'B' compartido, 'L' ojo izquierdo, 'R' ojo derecho.
+	var header := data[0]
+	var jpg := data.slice(1)
 	var img := Image.new()
-	var err := img.load_jpg_from_buffer(data)
+	var err := img.load_jpg_from_buffer(jpg)
 	if err != OK:
 		return
-	if _texture == null:
-		_texture = ImageTexture.create_from_image(img)
-		texture_rect.texture = _texture
-	else:
-		_texture.update(img)
+	match header:
+		HEADER_LEFT:
+			if _texture_left == null:
+				_texture_left = ImageTexture.create_from_image(img)
+				texture_rect.texture = _texture_left
+			else:
+				_texture_left.update(img)
+		HEADER_RIGHT:
+			if _texture_right == null:
+				_texture_right = ImageTexture.create_from_image(img)
+				right_texture_rect.texture = _texture_right
+			else:
+				_texture_right.update(img)
+		_:
+			# HEADER_BOTH o desconocido -> mismo frame en ambos paneles.
+			if _texture_left == null:
+				_texture_left = ImageTexture.create_from_image(img)
+				texture_rect.texture = _texture_left
+			else:
+				_texture_left.update(img)
+			if _texture_right == null:
+				_texture_right = ImageTexture.create_from_image(img)
+				right_texture_rect.texture = _texture_right
+			else:
+				_texture_right.update(img)
 	_frames_received += 1
 	_bytes_received += data.size()
 
@@ -177,8 +223,15 @@ func _rebuild_lens_list() -> void:
 		var lens: Dictionary = lens_dict
 		var btn := Button.new()
 		var lens_id: String = lens.get("id", "?")
-		var tipo: String = lens.get("tipo", "")
-		btn.text = "%s\n[%s]" % [lens_id, tipo]
+		var nombre: String = String(lens.get("nombre", "")).strip_edges()
+		var tipo: String = String(lens.get("tipo", "")).strip_edges()
+		# Mostramos el nombre humano arriba; si la lente no tiene nombre,
+		# caemos al tipo y como ultimo recurso al id.
+		var titulo := nombre
+		if titulo == "":
+			titulo = tipo if tipo != "" else lens_id
+		var subtitulo := tipo if (tipo != "" and tipo != titulo) else lens_id
+		btn.text = "%s\n[%s]" % [titulo, subtitulo]
 		btn.custom_minimum_size = Vector2(0, 60)
 		btn.pressed.connect(_on_lens_button_pressed.bind(lens_id))
 		lens_list.add_child(btn)
@@ -203,8 +256,18 @@ func _on_lens_button_pressed(lens_id: String) -> void:
 func _update_state_label() -> void:
 	var left_id: String = _vision_state.get("left", {}).get("lens_id", "?")
 	var right_id: String = _vision_state.get("right", {}).get("lens_id", "?")
-	var blend := " (Blend)" if left_id != right_id else ""
+	var is_blend := left_id != right_id
+	var blend := " (Blend)" if is_blend else ""
 	state_label.text = "Estado actual:\n  L: %s\n  R: %s%s" % [left_id, right_id, blend]
+	# Split del stream: si ambos ojos comparten lente -> panel unico.
+	# Si hay blend -> dos paneles lado a lado con su lente arriba.
+	if is_blend:
+		right_eye_pane.visible = true
+		left_eye_label.text = "OI Izquierdo — %s" % left_id
+		right_eye_label.text = "OD Derecho — %s" % right_id
+	else:
+		right_eye_pane.visible = false
+		left_eye_label.text = "Ambos ojos — %s" % left_id
 
 
 func _update_status(text: String) -> void:

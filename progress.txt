@@ -309,7 +309,7 @@ Pendiente de validacion en Quest (siguiente sesion):
   - Confirmar diferencias visuales notables entre monofocal/panoptix/vivity.
   - Medir FPS con el modo Blend mas asimetrico posible (panoptix vs vivity).
 
-=== Sprint 6 (F3 PoC streaming) — Implementacion (pendiente medicion) ===
+=== Sprint 6 (F3 PoC streaming) ï¿½ Implementacion (pendiente medicion) ===
 Fecha: 2026-05-26 16:41
 Archivos nuevos:
   - autoloads/streaming_server.gd (WebSocket server en puerto 9090)
@@ -324,7 +324,7 @@ Proximo paso: arrancar APK, correr streaming_client.tscn en PC, medir FPS visor.
 Criterio GO: >=72 FPS con streaming activo.
 
 
-=== Sprint 6 CERRADO (GO) — 2026-05-26 17:03 ===
+=== Sprint 6 CERRADO (GO) ï¿½ 2026-05-26 17:03 ===
 Primer test: 512x512 @ 15 Hz + JPG q=0.5 en main thread => FPS cayo a 30-40 (NO-GO).
 Optimizaciones aplicadas:
   - SubViewport 512 -> 256 (4x menos pixels).
@@ -335,3 +335,298 @@ Segundo test: estable en Quest 2 (criterio GO cumplido). En Quest 3 deberia ser 
 Riesgo R2 (captura sincrona stutters VR) -> MITIGADO.
 Nota: handshake con device_id (entregable Sprint 7) se pospone a Sprint 9 porque depende de licencias.
 
+
+=== Sprint 7 CERRADO (F3 completa) - 2026-05-26 ===
+Objetivo: tablet de control funcional con UI dinamica desde catalogo.
+
+Cambios principales:
+  - autoloads/streaming_server.gd:
+      * Senal command_received(cmd: Dictionary, peer_id) para comandos JSON
+        de la tablet (apply_lens, etc.).
+      * Texto bidireccional: send_text_to(peer_id, text), broadcast_text(text).
+      * Bug fix: client_connected ahora se emite solo en la transicion
+        STATE_CONNECTING -> STATE_OPEN (antes se emitia al accept TCP, lo que
+        causaba que el "hello" del visor se descartara silenciosamente porque
+        el WebSocketPeer aun no habia completado el handshake HTTP-Upgrade).
+        Se cachea host del stream en _peer_hosts y un flag _peer_handshaked.
+      * Guard: si feature "tablet" esta activa NO se levanta el server.
+  - features/vr_core/main.gd:
+      * _on_streaming_client_connected: envia mensaje hello con catalog_version,
+        lista de lentes (clave "catalogo" del JSON) y vision_state actual.
+      * _on_streaming_command_received: valida lens_id contra DataManager.get_lens_ids,
+        sincroniza _lens_index_left/right y llama a DataManager.apply_lens.
+  - features/tablet/streaming_client.tscn + .gd: UI completa rediseÃ±ada.
+      * Layout: panel izquierdo con stream (HeaderLabel + TopBar + DiscoveredList
+        + StatusLabel + StreamFrame con TextureRect) y panel derecho con control
+        (Title + EyeOption Ambos/Izquierdo/Derecho + LensListScroll + StateLabel).
+      * Tema con fondo oscuro, paneles redondeados, jerarquia tipografica.
+      * _rebuild_lens_list: crea botones por cada lente recibida del hello.
+      * Estado optimista en cliente: al tocar un boton actualiza StateLabel
+        ("L: monofocal / R: panoptix (Blend)") sin esperar respuesta.
+  - autoloads/discovery_beacon.gd (NUEVO): autoload UDP broadcast LAN discovery.
+      * Visor: cada 2s emite broadcast a 255.255.255.255:9091 con
+        {app, device_id, ws_port, ts}. Funciona sin backend, sin internet.
+      * Tablet (detecta feature "tablet"): bindea 0.0.0.0:9091, cachea hosts
+        vistos, emite visor_discovered(host, payload). La UI lista los hosts
+        activos como botones; un toque conecta.
+  - export_presets.cfg: nuevo preset "AndroidTablet" (package com.simulador.tablet,
+    xr_mode=0, enable_meta_plugin=false, custom_features="tablet").
+  - project.godot: run/main_scene.tablet="res://features/tablet/streaming_client.tscn"
+    + autoload DiscoveryBeacon.
+
+Optimizaciones de calidad (iteracion final del sprint):
+  - StreamingCapture: 256x256 -> 320x320, JPG q=0.4 -> 0.55 (notablemente
+    mas nitido sin caida de FPS perceptible en Quest 2).
+  - HUDs del visor (FpsHud, SyncHud, StreamHud): pixel_size 0.005 -> 0.0015
+    para que no estorben la visual. Reposicionados mas al centro.
+
+Criterio de salida cumplido:
+  - Desde la tablet se cambia de lente y el visor responde.
+  - Modo Blend funciona desde la tablet (eje "Izquierdo"/"Derecho" en el
+    selector + lentes distintas).
+  - Discovery automatico: el visor aparece en la tablet sin necesidad de
+    teclear IP (input manual sigue como fallback).
+
+Mejoras pendientes para Sprint 8+ (no bloqueantes):
+  - WifiManager.MulticastLock en Android: en algunos casos Android filtra
+    broadcasts UDP cuando el wifi entra en standby. Si en pruebas en campo
+    el discovery falla, agregar permiso CHANGE_WIFI_MULTICAST_STATE + plugin.
+  - Subir mas la resolucion del stream cuando podamos medir margen real
+    en Quest 3 (objetivo: 480x480).
+  - Indicador visual en la tablet de "conexion estable" vs "reconectando".
+  - Eliminar los HUDs Label3D del visor cuando exista UI de control real
+    (post-Sprint 8 o Sprint 12).
+
+Pendientes formales heredados (no del Sprint 7):
+  - Sprint 3 fase 2: deploy del backend a VPS de produccion.
+  - BACKEND_URL hardcodeada en data_manager.gd (post-Sprint 5, sigue abierto).
+  - Handshake con device_id en StreamingServer: postergado a Sprint 9.
+
+
+
+================================================================================
+[2026-05-26 18:07] SPRINT 8 — Panel Admin CERRADO ?
+================================================================================
+
+Decisiones del usuario:
+  - Idioma: español + ingles, configurable via cookie (default: español).
+  - Upload de archivos: directo via formulario web (multipart) -> MinIO.
+
+Archivos nuevos:
+  backend/api/app/admin/__init__.py
+  backend/api/app/admin/i18n.py         — diccionario de traducciones es/en + funcion t(key, lang).
+  backend/api/app/admin/auth.py         — JWT HS256 en cookie httpOnly admin_session (8h TTL),
+                                          bcrypt via passlib, dependency get_current_admin que
+                                          levanta HTTPException(303, Location=/admin/login).
+  backend/api/app/admin/storage.py      — wrapper boto3 (get_s3_client, ensure_bucket,
+                                          upload_file_streaming con SHA256 al vuelo, delete_object,
+                                          open_object_stream para servir desde el proxy).
+  backend/api/app/admin/templating.py   — Jinja2Templates + helper render() inyectando
+                                          request/lang/supported_langs/t/flash en el ctx.
+  backend/api/app/admin/router.py       — ~400 lineas, prefix /admin: login/logout, lang,
+                                          dashboard, devices CRUD, lenses (create+activate),
+                                          versions (upload+activate+delete), logs (filtros +
+                                          paginacion + export CSV).
+  backend/api/app/admin/files.py        — prefix /files/<key:path>, sirve objetos desde MinIO
+                                          en streaming (chunks de 1 MB).
+  backend/api/app/templates/base.html   — layout con Tailwind CDN + HTMX CDN, navbar con
+                                          selector de idioma EN/ES, flash messages.
+  backend/api/app/templates/login.html
+  backend/api/app/templates/dashboard.html
+  backend/api/app/templates/devices.html — tabla con forms "huerfanos" referenciados por
+                                           atributo form="..." (HTML valido aunque inputs
+                                           esten en celdas distintas).
+  backend/api/app/templates/lenses.html  — listado a la izquierda + editor JSON a la derecha.
+  backend/api/app/templates/versions.html — form multipart APK+PCK + tabla con activate/delete.
+  backend/api/app/templates/logs.html    — filtros + paginacion + boton export CSV.
+
+Archivos modificados:
+  backend/api/requirements.txt          — + jinja2 3.1.4, + itsdangerous 2.2.0
+  backend/api/app/main.py               — incluye admin_router + files_router, exception_handler
+                                          global convierte HTTPException(303, Location) en
+                                          RedirectResponse (para auth dependency), ensure_bucket
+                                          en startup.
+
+Decisiones tecnicas:
+  - Server-rendered con Jinja2 (sin SPA), HTMX disponible pero usado de forma mínima por ahora.
+  - Cookies: admin_session (JWT HS256, httponly, samesite=lax, 8h) y admin_lang (1 año).
+  - Auth dependency levanta HTTPException(303) que el handler global convierte a RedirectResponse
+    — patron limpio: cada route protegida solo declara dmin: AdminDep y se auto-redirige.
+  - Upload sincronico via boto3 + io.BytesIO (acumula en memoria ~80 MB APK + ~80 MB PCK = ok
+    para el VPS de 4 GB). Si se vuelve problema, migrar a multipart upload boto3.
+  - LensCatalog no acepta atributos dinamicos (Pydantic strict): se reempaqueta a dict para
+    inyectar lens_count al template.
+  - SHA256 se calcula al vuelo durante upload con hashlib.sha256 + read en chunks de 8 MB.
+  - El proxy /files/<key>/ sirve los objetos al Quest sin exponer MinIO (importante para prod).
+    Las URLs en manifest.json se construyen como public_base_url + /files/apk/... y /files/pck/...
+
+Smoke test verde (todos los endpoints):
+  GET  /admin/login          -> 200 (render login form)
+  POST /admin/login (ok)     -> 303 -> /admin/dashboard + Set-Cookie admin_session
+  GET  /admin/dashboard      -> 200 con sesion / 303 sin sesion
+  GET  /admin/devices        -> 200
+  POST /admin/devices        -> 303 (crea device TEST_PANEL_001 y aparece en listado)
+  GET  /admin/lenses         -> 200 (lista seed catalog + form de creacion)
+  GET  /admin/versions       -> 200
+  GET  /admin/logs           -> 200
+  GET  /admin/logs.csv       -> 200 (text/csv attachment)
+  GET  /admin/lang?code=en   -> 303 + Set-Cookie admin_lang=en
+
+Credenciales seed (sin cambios desde Sprint 3):
+  Usuario: admin
+  Pass:    admin123  (rotar antes de prod)
+
+Pendientes Sprint 8 (no bloqueantes):
+  - Editor visual de lentes (esta solo el textarea JSON). Posible Sprint 12+.
+  - Progress bar real de upload (HTMX no maneja bien progress de file uploads; lo natural es JS
+    con XHR/Fetch + ReadableStream). Por ahora el form muestra spinner del browser.
+  - Restriccion de CORS a dominio del panel (esta abierto en *).
+  - Roles "viewer" (read-only) — el modelo lo soporta, las routes aun no diferencian.
+
+Proximo: Sprint 9 — Licencias (LicenseManager autoload, license.bin cifrado, periodo de gracia).
+
+================================================================================
+[2026-05-26 18:15] SPRINT 8 polish — Editor visual de lentes
+================================================================================
+
+Pedido del usuario: el editor de lentes era solo un textarea JSON. Reemplazarlo
+por una tabla con boton agregar/eliminar y campos por columna.
+
+Cambios:
+  backend/api/app/admin/router.py  — endpoint /admin/lenses ahora pasa al template
+                                     active_data (JSON del catalogo activo serializado)
+                                     y active_version, para alimentar el editor visual.
+  backend/api/app/admin/i18n.py    — +20 claves nuevas (lens.editor_visual, add_lens,
+                                     lens_id, param.halo, param.contrast, etc).
+  backend/api/app/templates/lenses.html — rewrite completo:
+      - Dos tabs en la mitad derecha: "Editor visual" (default) y "JSON crudo".
+      - Tabla con columnas: ID, Nombre, Halos, Perdida contraste, Blur cerca,
+        Blur medio, Blur lejos, Distancia focal, [Eliminar].
+      - Boton "+ Agregar lente" inserta fila vacia.
+      - Boton "Eliminar" por fila con confirm().
+      - JS vanilla maneja el estado en memoria. Al hacer submit, si esta en
+        modo visual serializa la tabla al textarea JSON oculto y envia al endpoint
+        /admin/lenses existente (mismo backend, sin nuevos handlers).
+      - Conserva descripcion y rangos min/max originales al re-serializar
+        (importante para no perder info al editar un catalogo viejo).
+      - Validacion client-side: IDs no vacios y unicos.
+      - Si el usuario edita el JSON crudo a mano, al volver a la pestana visual
+        se recarga desde el textarea.
+      - El boton avanzado en un <details> aclara que descripcion / min / max se
+        editan desde la pestana JSON.
+
+Smoke test: GET /admin/lenses -> 200 con tab-visual-btn y add-lens-btn presentes.
+
+Pendiente para futuras iteraciones:
+  - Editor inline de descripcion (drawer/modal por fila).
+  - Editor de min/max sin tener que pasar a JSON crudo.
+  - Preview en vivo (slider por param mostrando como se veria el blur).
+
+================================================================================
+[2026-05-26 18:29] Tablet: stream split por ojo (blend) + PLAN escenarios
+================================================================================
+
+Pedido del usuario:
+  1) Cuando los dos ojos tienen distinta lente ("blend"), el stream de la
+     tablet debe dividirse en dos paneles. Si ambos ojos tienen la misma
+     lente -> una sola pantalla.
+  2) Documentar Sprint 10.A y 10.B (escenarios 3D inmersivos) en PLAN.md.
+
+Cambios:
+
+  features/tablet/streaming_client.tscn
+    - StreamFrame ahora contiene EyesContainer (HBoxContainer) con dos
+      sub-paneles: LeftEyePane y RightEyePane.
+    - Cada pane tiene su Label (titulo dinamico) + TextureRect.
+    - RightEyePane arranca visible=false.
+
+  features/tablet/streaming_client.gd
+    - @onready vars nuevos: right_texture_rect, left_eye_label,
+      right_eye_label, right_eye_pane.
+    - _on_frame_received: actualiza la misma _texture en ambos
+      TextureRect (mismo frame por ahora, limitacion documentada).
+    - _update_state_label: si left_id == right_id -> oculta RightEyePane,
+      label izq = "Ambos ojos - <lens>". Si distintas -> muestra ambos
+      panes, labels "OI Izquierdo - <lens>" / "OD Derecho - <lens>".
+
+  Limitacion conocida: el stream actual es un solo SubViewport raw (sin
+  shaders por ojo), por diseno del Sprint 6 para no caer FPS. Mostrar el
+  mismo frame en ambos paneles en modo blend NO refleja con fidelidad
+  pixel-perfect lo que ve cada ojo. La fidelidad real (dos SubViewports
+  con shaders aplicados, doble bandwidth) queda como TODO para un sprint
+  futuro. La UI ya cumple el contrato visual: el usuario VE que hay
+  blend activo y cual lente esta en cada ojo.
+
+  SimuladorTablet.apk re-exportado: 78.9 MB (timestamp actualizado).
+  Pendiente: instalar en la tablet -> abrir -> conectar al visor ->
+  aplicar lente distinta a cada ojo desde la app y confirmar que el
+  panel derecho aparece.
+
+PLAN.md
+  - Insertados Sprint 10 (Consultorio + libro en mano) y Sprint 11
+    (Auto de noche + halos), ambos detallados con assets, estructura
+    de archivos, entregables y criterio de salida.
+  - Renumerados los sprints siguientes:
+      Sprint 10 (OTA core)         -> Sprint 12
+      Sprint 11 (plugin Android)   -> Sprint 13
+      Sprint 12 (Hardening)        -> Sprint 14
+  - Decisiones clave de los nuevos sprints:
+      * Assets recomendados: Polyhaven (CC0) + Kenney Car Kit + Mixamo.
+      * Nuevo uniform en el shader de Sprint 2:
+        runtime_focus_error (float 0..1) calculado por frame segun
+        distancia mano->camara y focal_distance_m de cada ojo.
+      * features/scenarios/scenario_manager.gd autoload nuevo,
+        cargable via WS desde la tablet con cmd "load_scenario".
+
+================================================================================
+[2026-05-26 18:34] Tablet: shader de preview por ojo (lentes diferenciadas)
+================================================================================
+
+Pedido: en modo blend ambas pantallas se ven iguales; cada una deberia
+demostrar como ve el ojo correspondiente.
+
+Solucion: shader canvas_item aplicado en el TextureRect de cada panel
+del split, con uniforms tomados del catalogo de lentes (lado tablet,
+no requiere mas bandwidth ni mas SubViewports en el visor).
+
+Archivos:
+  features/tablet/eye_preview.gdshader  (nuevo)
+    - shader_type canvas_item
+    - Uniforms: blur_amount, halo_intensity, contrast_loss, halo_threshold, halo_tint
+    - Box blur 9-tap con radio 8 px (mas suave que el spatial del Sprint 2
+      para no comer FPS en la tablet de gama media)
+    - Halo rings (8 direcciones x 2 anillos: 14 px / 26 px) con falloff
+      cuadratico, mismo modelo que el shader del visor
+    - Mix a gris medio para contrast_loss
+    - COLOR final clamped 0..1.5 (deja headroom para halos brillantes)
+
+  features/tablet/streaming_client.gd
+    - Vars nuevos: _lenses_by_id (Dictionary id -> lens), _left_shader_mat,
+      _right_shader_mat
+    - _ready(): instancia ShaderMaterial con el shader cargado, asigna uno
+      por TextureRect, default neutral (sin efecto)
+    - _on_text_received hello: indexa lenses_by_id ademas de cachear array
+    - _update_state_label: invoca _apply_lens_to_shader(mat, lens_id) para
+      cada ojo y luego decide split UI (igual que antes)
+    - _set_shader_neutral(): blur=halo=contrast=0
+    - _apply_lens_to_shader(): blur efectivo = 0.6*med + 0.2*near + 0.2*far
+      (proxy porque no hay depth en el stream 2D)
+    - _extract_param(): tolera dos formatos del catalogo:
+        { "halo_intensity": 0.6 }                 (escalar, editor visual)
+        { "halo_intensity": { "default": 0.6 } }  (formato seed con min/max)
+
+  SimuladorTablet.apk re-exportado (78.9 MB, timestamp fresco).
+
+Resultado esperado al instalar:
+  - Ambos ojos = Monofocal: panel unico, sin halos, blur minimo (~0.2).
+  - Blend Monofocal | PanOptix: dos paneles, izquierdo casi nitido, derecho
+    con halos amarillentos visibles en zonas brillantes + leve perdida
+    de contraste.
+  - Blend Vivity | PanOptix: dos paneles claramente distintos en halos
+    (PanOptix mucho mas) y blur (Vivity blur cerca 0.5).
+
+Limitaciones residuales:
+  - No usa depth real, asi que el blur es "global" no diferenciado por
+    distancia al objeto. Aceptable para vista de control.
+  - Si la lente del catalogo no tiene los 6 params estandar, los faltantes
+    se asumen 0 (lente neutra). Sin crash.

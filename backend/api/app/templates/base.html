@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ t('app.title') }}{% block subtitle %}{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    body { background: #0f1419; color: #e6eaf0; font-family: ui-sans-serif, system-ui, sans-serif; }
+    .card { background: #1a1f2b; border: 1px solid #2a3142; border-radius: 10px; }
+    .input, .select, textarea {
+      background: #0f1419; border: 1px solid #2a3142; border-radius: 6px;
+      padding: 0.5rem 0.75rem; color: #e6eaf0; width: 100%;
+    }
+    .input:focus, .select:focus, textarea:focus { outline: 2px solid #3b82f6; border-color: #3b82f6; }
+    .btn { display: inline-block; padding: 0.5rem 1rem; border-radius: 6px; font-weight: 500; transition: all 0.15s; cursor: pointer; }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-ghost { background: transparent; border: 1px solid #2a3142; color: #e6eaf0; }
+    .btn-ghost:hover { background: #1a1f2b; }
+    .btn-success { background: #16a34a; color: white; }
+    .btn-success:hover { background: #15803d; }
+    .badge { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+    .badge-ok { background: #14532d; color: #86efac; }
+    .badge-warn { background: #713f12; color: #fde68a; }
+    .badge-err { background: #7f1d1d; color: #fca5a5; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 0.65rem 0.75rem; border-bottom: 1px solid #2a3142; font-size: 0.92rem; }
+    th { background: #131720; font-weight: 600; color: #9aa4b2; }
+    a { color: #60a5fa; }
+    a:hover { color: #93c5fd; }
+  </style>
+</head>
+<body>
+  {% if admin_user %}
+  <nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-6">
+    <span class="text-lg font-semibold text-white">{{ t('app.title') }}</span>
+    <div class="flex gap-4 text-sm">
+      <a href="/admin/dashboard" class="hover:text-white">{{ t('nav.dashboard') }}</a>
+      <a href="/admin/devices"   class="hover:text-white">{{ t('nav.devices') }}</a>
+      <a href="/admin/lenses"    class="hover:text-white">{{ t('nav.lenses') }}</a>
+      <a href="/admin/versions"  class="hover:text-white">{{ t('nav.versions') }}</a>
+      <a href="/admin/logs"      class="hover:text-white">{{ t('nav.logs') }}</a>
+    </div>
+    <div class="ml-auto flex items-center gap-4 text-sm">
+      <form action="/admin/lang" method="post" class="flex items-center gap-1">
+        <span class="text-slate-400">{{ t('nav.lang') }}:</span>
+        {% for code in supported_langs %}
+          <button type="submit" name="code" value="{{ code }}"
+                  class="px-2 py-0.5 rounded {{ 'bg-blue-600 text-white' if code == lang else 'text-slate-400 hover:text-white' }}">
+            {{ code|upper }}
+          </button>
+        {% endfor %}
+      </form>
+      <span class="text-slate-400">{{ admin_user.username }}</span>
+      <a href="/admin/logout" class="btn btn-ghost text-xs">{{ t('nav.logout') }}</a>
+    </div>
+  </nav>
+  {% endif %}
+
+  {% if flash %}
+  <div class="px-6 pt-4">
+    <div class="card px-4 py-3 {{ 'border-green-700' if flash_kind == 'ok' else 'border-red-700' }}">
+      {{ flash }}
+    </div>
+  </div>
+  {% endif %}
+
+  <main class="px-6 py-6 max-w-7xl mx-auto">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -1,12 +1,18 @@
 """FastAPI app entry point."""
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import HTTPException
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlmodel import Session
 
+from app.admin.files import router as files_router
+from app.admin.router import router as admin_router
+from app.admin.storage import ensure_bucket
 from app.config import settings
 from app.database import engine, init_db
 from app.routers import limiter, router as public_router
@@ -25,8 +31,7 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS: Sprint 3 abre todo para facilitar desarrollo.
-# Sprint 8 lo restringira al dominio del panel admin.
+# CORS abierto en desarrollo. Sprint 9+ lo restringira al dominio del panel.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,7 +40,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Las dependencies del panel admin levantan HTTPException(303, Location=...)
+# para forzar redirect al login. Este handler las convierte en RedirectResponse.
+@app.exception_handler(HTTPException)
+async def _redirect_or_default_handler(request: Request, exc: HTTPException):
+    if exc.status_code == 303 and exc.headers and exc.headers.get("Location"):
+        return RedirectResponse(url=exc.headers["Location"], status_code=303)
+    return await http_exception_handler(request, exc)
+
+
 app.include_router(public_router)
+app.include_router(admin_router)
+app.include_router(files_router)
 
 
 @app.on_event("startup")
@@ -45,6 +62,11 @@ def on_startup() -> None:
     logger.info("Ejecutando seed inicial...")
     with Session(engine) as session:
         seed(session)
+    logger.info("Asegurando bucket MinIO/S3...")
+    try:
+        ensure_bucket()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("ensure_bucket fallo (no fatal): %s", e)
     logger.info("Backend listo en %s", settings.public_base_url)
 
 
@@ -60,6 +82,7 @@ def root() -> dict:
         "name": "Simulador VR Backend",
         "version": app.version,
         "docs": "/docs",
+        "admin": "/admin/login",
         "endpoints": {
             "manifest": "/api/manifest.json",
             "verify": "POST /api/verify",

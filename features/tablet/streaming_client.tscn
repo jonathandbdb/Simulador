@@ -127,8 +127,44 @@ layout_mode = 2
 size_flags_vertical = 3
 theme_override_styles/panel = SubResource("StyleBox_stream")
 
-[node name="TextureRect" type="TextureRect" parent="Margin/HBox/StreamPanel/VBox/StreamFrame"]
+[node name="EyesContainer" type="HBoxContainer" parent="Margin/HBox/StreamPanel/VBox/StreamFrame"]
 layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="LeftEyePane" type="VBoxContainer" parent="Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="LeftEyeLabel" type="Label" parent="Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/LeftEyePane"]
+layout_mode = 2
+text = "Ambos ojos"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.7, 0.78, 0.9, 1)
+
+[node name="TextureRect" type="TextureRect" parent="Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/LeftEyePane"]
+layout_mode = 2
+size_flags_vertical = 3
+expand_mode = 1
+stretch_mode = 5
+
+[node name="RightEyePane" type="VBoxContainer" parent="Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="RightEyeLabel" type="Label" parent="Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/RightEyePane"]
+layout_mode = 2
+text = "OD Derecho"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.7, 0.78, 0.9, 1)
+
+[node name="TextureRect" type="TextureRect" parent="Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/RightEyePane"]
+layout_mode = 2
+size_flags_vertical = 3
 expand_mode = 1
 stretch_mode = 5
 

@@ -121,27 +121,32 @@ Para el estado actual del avance ver `progress.txt`.
 **Pendiente para Sprint 7:** medicion fina con perfviewer + decisiones sobre canal de control bidireccional.
 
 ### Sprint 7 — F3 completa
-**Estado:** EN CURSO
+**Estado:** CERRADO ✅
 **Objetivo:** tablet de control funcional.
 **Entregables:**
-- WebSocket protocol con dos canales (control JSON / stream binario).
-- Cliente tablet completo: UI dinamica desde el JSON del catalogo, modo Blend con paneles divididos.
+- WebSocket protocol con dos canales (control JSON / stream binario). ✅
+- Cliente tablet completo: UI dinamica desde el JSON del catalogo, modo Blend con selector de ojo + lista de lentes desde catalogo. ✅
 - Hardware binding del WebSocket: handshake con `device_id`, whitelist cacheada de `/api/admin/devices`. **[Pospuesto a Sprint 9 — depende de licencias]**
-- Build separado para Android (tablet) ademas del Quest.
-**Criterio de salida:** desde la tablet se cambia de lente y el visor responde; modo Blend funciona desde la tablet.
+- Build separado para Android (tablet) ademas del Quest. ✅ (preset `AndroidTablet`)
+- Discovery LAN automatico (extra): autoload `DiscoveryBeacon` con UDP broadcast en :9091 — la tablet detecta el visor sin tener que tipear IP. ✅
+**Resultado:** desde la tablet se cambia de lente y el visor responde; modo Blend funciona; descubrimiento automatico en LAN. Calidad del stream subida a 320x320 q=0.55 sin penalidad de FPS perceptible. HUDs del visor reducidos para no estorbar.
+**Pendientes para sprints futuros (no bloqueantes):** `MulticastLock` en Android si el discovery falla en campo, subir mas la resolucion del stream cuando se mida margen en Quest 3, indicador visual de reconexion en la tablet.
 
 ### Sprint 8 — F0 panel admin
-**Estado:** PENDIENTE
+**Estado:** CERRADO ✅
 **Objetivo:** admin gestiona el sistema sin tocar codigo.
 **Entregables:**
-- Auth JWT + bcrypt.
-- CRUD dispositivos.
-- Editor de catalogo de lentes (textarea JSON + validacion + preview).
-- Gestor de versiones (upload APK/PCK con SHA256 server-side, subida a MinIO, marcar activa).
-- Visor de logs con filtros y export CSV.
-- Dashboard con estadisticas.
-- Stack: Jinja2 + HTMX + Tailwind.
-**Criterio de salida:** el admin registra un visor, sube una version y la activa, todo desde el navegador.
+- Auth JWT + bcrypt en cookie httpOnly. ✅
+- i18n configurable (es/en) con cookie + selector en navbar. ✅
+- CRUD dispositivos (alta, edicion inline en tabla, baja con confirmacion). ✅
+- Editor de catalogo de lentes (textarea JSON + validacion + activacion). ✅
+- Gestor de versiones (upload multipart APK + PCK, SHA256 server-side, MinIO, activacion). ✅
+- Visor de logs con filtros (device_id, evento, rango de fechas) + paginacion + export CSV. ✅
+- Dashboard con estadisticas (totales devices, version y catalogo activos, ultimos eventos). ✅
+- Stack: FastAPI + Jinja2 + HTMX + Tailwind (CDN). ✅
+- Endpoint `/files/<key>` que proxea desde MinIO al cliente (Quest descarga APK/PCK sin tocar el bucket directo). ✅
+- `ensure_bucket()` en startup (crea bucket si falta, idempotente). ✅
+**Criterio de salida:** smoke test verde — login con `admin/admin123`, dashboard renderiza, CRUD device + ver listado funciona, lenses/versions/logs cargan, idioma EN/ES se intercambia, redirect a login cuando no hay sesion.
 
 ### Sprint 9 — F4 licencias
 **Estado:** PENDIENTE
@@ -155,7 +160,63 @@ Para el estado actual del avance ver `progress.txt`.
 - `LicenseErrorScreen` (CanvasLayer) con `OS.get_unique_id()` + codigo de error.
 **Criterio de salida:** visor sin internet 5 dias sigue funcionando; al dia 8 muestra bloqueo. Server 403 bloquea inmediato.
 
-### Sprint 10 — F5 OTA core
+### Sprint 10 — Escenario inmersivo A: Consultorio + libro en mano
+**Estado:** PENDIENTE
+**Objetivo:** primer escenario 3D inmersivo. El paciente se sienta en un consultorio virtual y sostiene un libro 3D anclado al joystick derecho. Al acercarlo o alejarlo, el blur cambia segun la `focal_distance_m` de la lente activa. Valida el patron "distancia controller -> camara -> blur por ojo".
+
+**Decisiones tecnicas:**
+- Assets: Polyhaven (CC0) para escena base — habitacion, escritorio, silla, lampara, libro 3D. Formato `.glb` importado a `res://assets/scenarios/consultorio/`.
+- Iluminacion: una `DirectionalLight3D` (luz exterior atenuada) + `OmniLight3D` (lampara de escritorio). `WorldEnvironment` con `glow_enabled = false` (no se necesitan halos aca).
+- Libro: `Node3D` hijo de `XRController3D` (mano derecha). Se mueve con la mano fisicamente.
+- Calculo de blur dinamico: cada frame, `distancia = (controller.global_position - xr_camera.global_position).length()`. Diferencia con `lens.focal_distance_m` se mapea a un nuevo uniform del shader del Sprint 2: `runtime_focus_error` (float 0..1). El shader existente sumara este factor al `blur_near` base.
+- Aplicacion por ojo independiente: cada `SubViewportContainer` ya tiene su `lens_id`. El `runtime_focus_error` se calcula UNA vez pero el blur final usa el `focal_distance_m` propio de cada ojo.
+- Boton del joystick A: "resetear posicion del libro al regazo" (Vector3 fijo offset de la camara).
+- Selector de escenario: nuevo menu radial in-VR + comando WS desde tablet `{ "cmd": "load_scenario", "id": "consultorio" }`.
+
+**Estructura:**
+- `features/scenarios/consultorio/consultorio.tscn` — escena raiz cargable.
+- `features/scenarios/consultorio/book_holder.gd` — script del libro: distance tracking + signal `focus_distance_changed`.
+- `features/scenarios/scenario_manager.gd` (autoload) — carga/descarga escenarios bajo demanda.
+- `features/vision_shaders/eye_shader.gdshader` — ampliado con uniform `runtime_focus_error`.
+
+**Entregables:**
+- Escena consultorio cargable y navegable a 90 FPS (Quest 3) / >=72 FPS (Quest 2).
+- Libro anclado al controller derecho, visible y manipulable.
+- Blur se actualiza en tiempo real al mover el libro: cerca del rostro -> blur si la lente no enfoca cerca.
+- Tablet puede cambiar escenario via WS.
+- `ScenarioManager` autoload registrado y verificado.
+- Test manual: monofocal (focal=6m) -> libro a 30cm = muy borroso; PanOptix (focal=0.4m) -> libro a 30cm = nitido. Resultado coherente con la lente.
+
+**Criterio de salida:** smoke test in-VR — usuario entra al consultorio, le aplican PanOptix en ambos ojos, ve el libro nitido a 30cm. Aplican monofocal en ojo izquierdo: ojo izquierdo borroso, derecho nitido (blend funcionando con interaccion).
+
+### Sprint 11 — Escenario inmersivo B: Auto de noche + halos
+**Estado:** PENDIENTE
+**Objetivo:** segundo escenario, foco en `halo_intensity`. El paciente esta sentado en el asiento del conductor de un auto detenido al costado de una ruta nocturna. Pasan autos en sentido contrario con faros encendidos. Un celular con pantalla emisiva esta apoyado en el tablero. Valida halos nocturnos diferenciados por lente.
+
+**Decisiones tecnicas:**
+- Assets: interior de auto + ruta + autos enemigos: combinacion Polyhaven (interior) + Kenney Car Kit (low-poly autos enemigos, rapido de prototipar). HDRI nocturno de Polyhaven para skybox.
+- Iluminacion: `WorldEnvironment` con `glow_enabled = true`, `glow_intensity = 1.5`, `glow_bloom = 0.3`. Faros: `SpotLight3D` con `light_energy` alto + cono estrecho. Pantalla celular: `StandardMaterial3D` con `emission_enabled = true`.
+- Trafico: 4-6 autos enemigos en un `Path3D` paralelo a la ruta, animados con `PathFollow3D` a velocidad ~60 km/h. Loop infinito.
+- El shader de halos del Sprint 2 (uniform `halo_intensity`) se activa naturalmente al detectar pixels brillantes (>= threshold de luminancia). PanOptix con `halo_intensity = 0.6` -> halos visibles intensos. Monofocal con `0.05` -> apenas un brillo.
+- Celular en tablero: `Node3D` anclado al tablero. El controller izquierdo puede "agarrarlo" (boton grip) y acercarlo/alejarlo de la cara. Mismo patron de `runtime_focus_error` del Sprint 10.
+- Audio ambiental: opcional, motor + viento. Si entra en presupuesto.
+
+**Estructura:**
+- `features/scenarios/auto_noche/auto_noche.tscn`.
+- `features/scenarios/auto_noche/traffic_spawner.gd` — instancia y anima autos enemigos.
+- `features/scenarios/auto_noche/phone_grabber.gd` — manipulacion del celular por el controller izquierdo.
+- Reutiliza `ScenarioManager` y el uniform `runtime_focus_error` del Sprint 10.
+
+**Entregables:**
+- Escena auto-noche cargable y estable a 90/72 FPS.
+- Trafico continuo con faros que producen halos diferenciados por lente.
+- Celular manipulable con el grip izquierdo, blur dinamico segun lente.
+- Tablet cambia entre `consultorio` y `auto_noche` via WS sin reiniciar.
+- Comparativa visual documentada: screenshots del mismo momento con 3 lentes distintas (monofocal / Vivity / PanOptix).
+
+**Criterio de salida:** demo grabada (screen capture del Quest) mostrando el mismo escenario nocturno con las 3 lentes del seed. Halos claramente distintos. FPS estable. Cambio entre lentes desde tablet sin glitch.
+
+### Sprint 12 — F5 OTA core
 **Estado:** PENDIENTE
 **Objetivo:** auto-actualizacion de assets (PCK) funcionando.
 **Entregables:**
@@ -168,7 +229,7 @@ Para el estado actual del avance ver `progress.txt`.
 - Log en `user://log_update.txt` enviado a `/api/log`.
 **Criterio de salida:** subir un PCK al panel -> el visor lo detecta al arrancar, descarga, verifica, aplica. Inducir corrupcion provoca rollback.
 
-### Sprint 11 — F5 plugin Android + CI/CD
+### Sprint 13 — F5 plugin Android + CI/CD
 **Estado:** PENDIENTE
 **Objetivo:** auto-actualizacion de APK + pipeline automatizado.
 **Entregables:**
@@ -177,7 +238,7 @@ Para el estado actual del avance ver `progress.txt`.
 - GitHub Actions: trigger `git tag v*` -> export APK + PCK -> SHA256 -> upload a MinIO -> POST a `/api/admin/versions` con API key.
 **Criterio de salida:** `git tag v0.1.0 && git push --tags` -> el visor se autoactualiza al siguiente arranque.
 
-### Sprint 12 — Hardening
+### Sprint 14 — Hardening
 **Estado:** PENDIENTE
 **Objetivo:** estabilidad y operabilidad.
 **Entregables:**

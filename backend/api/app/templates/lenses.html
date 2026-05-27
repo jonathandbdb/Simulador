@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% block subtitle %} — {{ t('lens.title') }}{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold mb-6">{{ t('lens.title') }}</h1>
+
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+  {# === Listado de catalogos (izquierda) === #}
+  <div class="lg:col-span-1">
+    <div class="card p-5">
+      <h2 class="text-lg font-semibold mb-4">{{ t('lens.title') }}</h2>
+      {% if catalogs %}
+      <table>
+        <thead><tr><th>{{ t('lens.version') }}</th><th>{{ t('lens.lens_count') }}</th><th></th></tr></thead>
+        <tbody>
+        {% for c in catalogs %}
+          <tr>
+            <td>
+              v{{ c.version }}
+              {% if c.is_active %}<span class="badge badge-ok ml-1">{{ t('lens.active') }}</span>{% endif %}
+              <div class="text-xs text-slate-500">{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+            </td>
+            <td>{{ c.lens_count }}</td>
+            <td class="text-right">
+              {% if not c.is_active %}
+              <form method="post" action="/admin/lenses/{{ c.id }}/activate" class="inline">
+                <button class="btn btn-success text-xs px-2 py-1" type="submit">{{ t('lens.activate') }}</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-slate-500 text-sm">—</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# === Editor (derecha) — tabs Visual / JSON === #}
+  <div class="lg:col-span-3">
+    <div class="card p-5">
+      <div class="flex items-center gap-2 mb-4 border-b border-slate-700">
+        <button type="button" id="tab-visual-btn"
+                class="px-4 py-2 -mb-px border-b-2 border-blue-500 text-white font-medium">
+          {{ t('lens.editor_visual') }}
+        </button>
+        <button type="button" id="tab-json-btn"
+                class="px-4 py-2 -mb-px border-b-2 border-transparent text-slate-400 hover:text-white">
+          {{ t('lens.editor_json') }}
+        </button>
+      </div>
+
+      {# Formulario unico: el JS sincroniza la tabla visual al textarea JSON antes del submit. #}
+      <form method="post" action="/admin/lenses" id="lens-form" onsubmit="return syncBeforeSubmit();">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <label class="block md:col-span-1">
+            <span class="text-sm text-slate-400">{{ t('lens.version') }}</span>
+            <input class="input mt-1" name="version" id="catalog-version" value="{{ active_version }}" required />
+          </label>
+          <div class="md:col-span-2 flex items-end justify-end gap-2">
+            <button type="button" class="btn btn-ghost" id="add-lens-btn">{{ t('lens.add_lens') }}</button>
+            <button type="submit" class="btn btn-primary">{{ t('lens.save') }}</button>
+          </div>
+        </div>
+
+        {# === Vista visual: tabla === #}
+        <div id="tab-visual" class="overflow-x-auto">
+          <table class="min-w-full" style="table-layout:auto">
+            <thead>
+              <tr>
+                <th class="whitespace-nowrap" style="min-width:200px">{{ t('lens.lens_name') }}</th>
+                <th class="whitespace-nowrap" style="min-width:100px">{{ t('lens.param.halo') }}</th>
+                <th class="whitespace-nowrap" style="min-width:100px">{{ t('lens.param.contrast') }}</th>
+                <th class="whitespace-nowrap" style="min-width:100px">{{ t('lens.param.blur_near') }}</th>
+                <th class="whitespace-nowrap" style="min-width:100px">{{ t('lens.param.blur_med') }}</th>
+                <th class="whitespace-nowrap" style="min-width:100px">{{ t('lens.param.blur_far') }}</th>
+                <th class="whitespace-nowrap" style="min-width:100px">{{ t('lens.param.focal') }}</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="lens-tbody">
+              {# Filas inyectadas por JS. #}
+            </tbody>
+          </table>
+          <p id="empty-msg" class="text-center text-slate-500 py-6 hidden">{{ t('lens.empty_table') }}</p>
+          <details class="mt-4 text-xs text-slate-400">
+            <summary class="cursor-pointer">{{ t('lens.lens_desc') }} / min / max (avanzado)</summary>
+            <p class="mt-2">Para editar descripciones, rangos min/max u otros campos extra, usar la pestana <strong>{{ t('lens.editor_json') }}</strong>.</p>
+          </details>
+        </div>
+
+        {# === Vista JSON crudo === #}
+        <div id="tab-json" class="hidden">
+          <p class="text-xs text-slate-500 mb-2">{{ t('lens.json_hint') }}</p>
+          <textarea name="json_data" id="json-data" rows="22"
+                    class="font-mono text-xs">{{ active_data }}</textarea>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# === JS del editor visual === #}
+<script>
+(function () {
+  const tbody         = document.getElementById('lens-tbody');
+  const emptyMsg      = document.getElementById('empty-msg');
+  const tabVisualBtn  = document.getElementById('tab-visual-btn');
+  const tabJsonBtn    = document.getElementById('tab-json-btn');
+  const tabVisual     = document.getElementById('tab-visual');
+  const tabJson       = document.getElementById('tab-json');
+  const addBtn        = document.getElementById('add-lens-btn');
+  const jsonTextarea  = document.getElementById('json-data');
+
+  // Rangos por defecto cuando no estan en el JSON original.
+  const DEFAULT_RANGES = {
+    halo_intensity:   { min: 0.0, max: 1.0 },
+    contrast_loss:    { min: 0.0, max: 0.5 },
+    blur_near:        { min: 0.0, max: 1.0 },
+    blur_medium:      { min: 0.0, max: 1.0 },
+    blur_far:         { min: 0.0, max: 1.0 },
+    focal_distance_m: { min: 0.3, max: 100.0 },
+  };
+
+  const PARAM_KEYS = ['halo_intensity', 'contrast_loss', 'blur_near', 'blur_medium', 'blur_far', 'focal_distance_m'];
+
+  // Estado interno: array de lentes. Cada elemento conserva descripcion y rangos
+  // originales para no perder informacion al re-serializar.
+  let lenses = [];
+
+  function loadFromJson() {
+    try {
+      const parsed = JSON.parse(jsonTextarea.value || '{}');
+      const arr = Array.isArray(parsed.catalogo) ? parsed.catalogo : [];
+      lenses = arr.map(normalizeLens);
+    } catch (e) {
+      console.warn('JSON invalido al cargar, empezando vacio:', e);
+      lenses = [];
+    }
+  }
+
+  function normalizeLens(raw) {
+    const out = {
+      id: raw.id || '',
+      nombre: raw.nombre || '',
+      descripcion: raw.descripcion || '',
+      params: {},
+    };
+    const p = raw.params || {};
+    for (const k of PARAM_KEYS) {
+      const v = p[k];
+      if (v && typeof v === 'object') {
+        out.params[k] = {
+          default: numOr(v.default, 0),
+          min: numOr(v.min, DEFAULT_RANGES[k].min),
+          max: numOr(v.max, DEFAULT_RANGES[k].max),
+        };
+      } else if (typeof v === 'number') {
+        out.params[k] = { default: v, min: DEFAULT_RANGES[k].min, max: DEFAULT_RANGES[k].max };
+      } else {
+        out.params[k] = { default: 0, min: DEFAULT_RANGES[k].min, max: DEFAULT_RANGES[k].max };
+      }
+    }
+    return out;
+  }
+
+  function numOr(v, fallback) {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  function renderTable() {
+    tbody.innerHTML = '';
+    if (lenses.length === 0) {
+      emptyMsg.classList.remove('hidden');
+      return;
+    }
+    emptyMsg.classList.add('hidden');
+    lenses.forEach((lens, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input class="input py-1 text-sm" data-field="nombre" value="${escapeAttr(lens.nombre)}" placeholder="Nombre de la lente" /></td>
+        ${PARAM_KEYS.map(k => `
+          <td><input class="input py-1 text-sm" type="number" step="0.01"
+                     data-field="param" data-param="${k}"
+                     value="${lens.params[k].default}" /></td>
+        `).join('')}
+        <td class="text-right">
+          <button type="button" class="btn btn-danger text-xs px-2 py-1" data-action="delete">
+            {{ t('lens.delete_row') }}
+          </button>
+        </td>
+      `;
+      tr.querySelectorAll('input').forEach(inp => {
+        inp.addEventListener('input', (ev) => onCellChange(idx, ev.target));
+      });
+      tr.querySelector('[data-action="delete"]').addEventListener('click', () => {
+        if (confirm('{{ t('lens.delete_confirm') }}')) {
+          lenses.splice(idx, 1);
+          renderTable();
+        }
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  function onCellChange(idx, input) {
+    const f = input.dataset.field;
+    if (f === 'nombre') lenses[idx].nombre = input.value;
+    else if (f === 'param') {
+      const k = input.dataset.param;
+      lenses[idx].params[k].default = numOr(input.value, 0);
+    }
+  }
+
+  // Convierte un nombre humano en un ID slug (lowercase, alfanumerico + _).
+  function slugify(name) {
+    return String(name)
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // saca tildes
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  }
+
+  // Asigna IDs unicos autogenerados a todas las lentes en base a su nombre.
+  // Si el nombre es vacio, usa 'lente'. Si colisiona, agrega _2, _3, ...
+  function assignAutoIds() {
+    const used = new Set();
+    lenses.forEach(lens => {
+      let base = slugify(lens.nombre || 'lente') || 'lente';
+      let candidate = base;
+      let n = 2;
+      while (used.has(candidate)) {
+        candidate = base + '_' + n;
+        n++;
+      }
+      lens.id = candidate;
+      used.add(candidate);
+    });
+  }
+
+  function escapeAttr(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  }
+
+  function serializeToJson() {
+    const version = document.getElementById('catalog-version').value.trim() || '1.0.0';
+    // Antes de serializar, regeneramos IDs en base al nombre para que sean
+    // unicos y consistentes (el usuario nunca los edita a mano en la tabla).
+    assignAutoIds();
+    const payload = { version, catalogo: lenses };
+    jsonTextarea.value = JSON.stringify(payload, null, 2);
+  }
+
+  // ===== Tabs =====
+  function activateTab(which) {
+    if (which === 'visual') {
+      // Si venimos del JSON crudo, recargamos por si el usuario edito a mano.
+      loadFromJson();
+      renderTable();
+      tabVisual.classList.remove('hidden');
+      tabJson.classList.add('hidden');
+      tabVisualBtn.classList.add('border-blue-500', 'text-white');
+      tabVisualBtn.classList.remove('border-transparent', 'text-slate-400');
+      tabJsonBtn.classList.remove('border-blue-500', 'text-white');
+      tabJsonBtn.classList.add('border-transparent', 'text-slate-400');
+    } else {
+      // Pasamos a JSON: sincronizamos desde la tabla.
+      serializeToJson();
+      tabVisual.classList.add('hidden');
+      tabJson.classList.remove('hidden');
+      tabJsonBtn.classList.add('border-blue-500', 'text-white');
+      tabJsonBtn.classList.remove('border-transparent', 'text-slate-400');
+      tabVisualBtn.classList.remove('border-blue-500', 'text-white');
+      tabVisualBtn.classList.add('border-transparent', 'text-slate-400');
+    }
+  }
+
+  tabVisualBtn.addEventListener('click', () => activateTab('visual'));
+  tabJsonBtn.addEventListener('click', () => activateTab('json'));
+
+  addBtn.addEventListener('click', () => {
+    const fresh = { id: '', nombre: '', descripcion: '', params: {} };
+    for (const k of PARAM_KEYS) {
+      fresh.params[k] = { default: 0, min: DEFAULT_RANGES[k].min, max: DEFAULT_RANGES[k].max };
+    }
+    lenses.push(fresh);
+    renderTable();
+  });
+
+  // Antes de enviar el form, si estamos en la pestana visual sincronizamos al JSON.
+  window.syncBeforeSubmit = function () {
+    if (!tabJson.classList.contains('hidden')) {
+      // En modo JSON: no tocamos, el textarea ya tiene el contenido del usuario.
+      return true;
+    }
+    // Validacion: nombre obligatorio en cada fila. ID se autogenera.
+    const sinNombre = lenses.some(l => !String(l.nombre || '').trim());
+    if (sinNombre) {
+      alert('{{ t("lens.name_required") }}');
+      return false;
+    }
+    serializeToJson();
+    return true;
+  };
+
+  // Init.
+  loadFromJson();
+  renderTable();
+})();
+</script>
+{% endblock %}
