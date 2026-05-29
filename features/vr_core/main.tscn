@@ -1,8 +1,11 @@
-[gd_scene load_steps=30 format=3]
+[gd_scene format=3]
 
-[ext_resource type="Script" path="res://features/vr_core/main.gd" id="1_main"]
-[ext_resource type="Shader" path="res://features/vision_shaders/sprint2_blur_test.gdshader" id="2_shader"]
-[ext_resource type="Shader" path="res://features/vision_shaders/fade.gdshader" id="3_fade"]
+[ext_resource type="Script" uid="uid://d3vd0mgryyrxv" path="res://features/vr_core/main.gd" id="1_main"]
+[ext_resource type="Shader" uid="uid://cyqfeqb5skxyu" path="res://features/vision_shaders/sprint2_blur_test.gdshader" id="2_shader"]
+[ext_resource type="Shader" uid="uid://lks8nscnq146" path="res://features/vision_shaders/fade.gdshader" id="3_fade"]
+[ext_resource type="PackedScene" uid="uid://cpep3uacnyup5" path="res://features/scenarios/consultorio/consultorio.tscn" id="4_consultorio"]
+[ext_resource type="PackedScene" uid="uid://cqpbe1f5d5gje" path="res://assets/scenarios/consultorio/magic_book/magic_book.gltf" id="5_book"]
+[ext_resource type="Script" uid="uid://b4wd8r8mu7laf" path="res://features/scenarios/consultorio/book_holder.gd" id="6_book_holder"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
 sky_top_color = Color(0.18, 0.32, 0.55, 1)
@@ -71,7 +74,7 @@ shader_parameter/blur_medium_r = 0.0
 shader_parameter/blur_far_r = 0.0
 shader_parameter/halo_intensity_l = 0.0
 shader_parameter/halo_intensity_r = 0.0
-shader_parameter/halo_threshold = 0.8
+shader_parameter/halo_threshold = 0.9
 
 [sub_resource type="QuadMesh" id="QuadMesh_fade"]
 size = Vector2(4, 4)
@@ -93,6 +96,7 @@ light_energy = 1.2
 shadow_enabled = true
 
 [node name="TestEnvironment" type="Node3D" parent="."]
+visible = false
 
 [node name="Floor" type="MeshInstance3D" parent="TestEnvironment"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.05, 0)
@@ -203,3 +207,25 @@ tracker = &"left_hand"
 
 [node name="RightHand" type="XRController3D" parent="XROrigin3D"]
 tracker = &"right_hand"
+
+; ====================================================================
+; Sprint 10 — Consultorio + libro en la mano
+; ====================================================================
+
+; Escenario del consultorio (oficina, escritorio, silla, iluminacion).
+[node name="Consultorio" parent="." instance=ExtResource("4_consultorio")]
+
+; Libro 3D anclado al controller derecho. Se mueve fisicamente con la mano.
+; La escala del GLTF original es grande (~13 unidades de ancho); se reduce
+; a un tamano de libro/revista comodo de leer en VR (~40 cm de ancho). Un
+; libro algo mas grande aumenta los pixeles-por-grado de cada glifo, lo que
+; compensa el bajo PPD del panel del Quest y reduce el pixelado del texto a
+; distancia. Ajustar en el inspector si hace falta.
+[node name="BookHolder" type="Node3D" parent="XROrigin3D/RightHand"]
+script = ExtResource("6_book_holder")
+post_process_quad_path = NodePath("../../XRCamera3D/PostProcessQuad")
+xr_camera_path = NodePath("../../XRCamera3D")
+book_node_path = NodePath("BookMesh")
+
+[node name="BookMesh" parent="XROrigin3D/RightHand/BookHolder" instance=ExtResource("5_book")]
+transform = Transform3D(0.03, 0, 0, 0, 0.03, 0, 0, 0, 0.03, 0, -0.02, -0.13)

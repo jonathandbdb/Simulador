@@ -12,20 +12,32 @@ extends Node3D
 ##        - boton A (ax_button)   -> proxima lente para el ojo IZQUIERDO
 ##        - boton B (by_button)   -> proxima lente para el ojo DERECHO
 ##        - trigger              -> aplica la misma lente a ambos ojos (reset Blend)
+##        - grip (squeeze)        -> apaga/enciende el shader post-proceso
+##                                   (modo "sin lentes" para comparar)
 ##      Esto habilita el modo Blend (lentes distintas por ojo) de forma natural.
-##   5. Auto-cicla un dia/noche cada DAY_NIGHT_INTERVAL segundos con
-##      fade-to-black intermedio.
+##   5. Mantiene el consultorio en modo dia fijo por ahora.
 
 const TARGET_PHYSICS_TICKS := 90
-const DAY_NIGHT_INTERVAL := 15.0  # segundos entre toggles
-const FADE_DURATION := 0.8        # tiempo de fade-out / fade-in
-const HOLD_AT_BLACK := 0.2        # tiempo en negro mientras se cambia el ambiente
+
+# Supersampling per-eye: renderiza el eye-buffer a mayor resolucion que la
+# nativa del panel para ganar nitidez en texto/detalle a distancia (imita lo
+# que hace PCVR/Air Link). >1.0 = mas nitido pero mas costo GPU. Se compensa
+# con foveated rendering (xr/openxr/foveation_*). 1.15 es un punto conservador
+# para Quest 2; Quest 3 admite mas holgura.
+const XR_RENDER_SCALE := 1.15
 
 # Lente inicial aplicada a ambos ojos al cargar el catalogo. Si no existe
 # en el catalogo, se usa la primera disponible.
-const INITIAL_LENS_ID := "monofocal"
+const INITIAL_LENS_ID := "panoptix"
 
-# Parametros visuales para el modo "dia" y el modo "noche".
+# Activacion de halos en esta escena. En el consultorio (lectura de cerca) los
+# halos no aportan y molestan, por eso quedan APAGADOS por defecto. Se pueden
+# reactivar en el inspector o en runtime con set_halos_enabled(true) — por
+# ejemplo en una escena nocturna con fuentes de luz puntuales. Cuando esta en
+# false, halo_intensity se fuerza a 0 en el shader sin tocar el catalogo.
+@export var halos_enabled: bool = false
+
+# Parametros visuales para el consultorio en modo dia fijo.
 const DAY_PARAMS := {
 	"sun_energy": 1.2,
 	"sky_top": Color(0.18, 0.32, 0.55, 1),
@@ -34,15 +46,6 @@ const DAY_PARAMS := {
 	"ground_horizon": Color(0.4, 0.4, 0.4, 1),
 	"ambient_color": Color(0.6, 0.7, 0.85, 1),
 	"ambient_energy": 0.4,
-}
-const NIGHT_PARAMS := {
-	"sun_energy": 0.05,
-	"sky_top": Color(0.0, 0.01, 0.04, 1),
-	"sky_horizon": Color(0.05, 0.05, 0.1, 1),
-	"ground_bottom": Color(0.0, 0.0, 0.0, 1),
-	"ground_horizon": Color(0.03, 0.03, 0.06, 1),
-	"ambient_color": Color(0.1, 0.12, 0.2, 1),
-	"ambient_energy": 0.05,
 }
 
 @onready var post_process_quad: MeshInstance3D = $XROrigin3D/XRCamera3D/PostProcessQuad
@@ -58,13 +61,14 @@ const NIGHT_PARAMS := {
 var xr_interface: XRInterface
 var fps_accumulator: float = 0.0
 var fps_frames: int = 0
-var is_night: bool = false
-var _cycle_timer: Timer
 # Indice de la lente activa en cada ojo dentro de DataManager.get_lens_ids().
 var _lens_index_left: int = 0
 var _lens_index_right: int = 0
 # Sprint 6: nodo de captura de streaming (creado en _ready).
 var _streaming_capture: Node = null
+# Toggle del shader post-proceso. Cuando esta en false, el quad se oculta
+# y se ve el render "crudo" del consultorio (sin DoF/halos).
+var _post_process_enabled: bool = true
 
 
 func _ready() -> void:
@@ -74,6 +78,8 @@ func _ready() -> void:
 	else:
 		get_viewport().use_xr = true
 		Engine.physics_ticks_per_second = TARGET_PHYSICS_TICKS
+		# Supersampling per-eye para nitidez (ver XR_RENDER_SCALE).
+		xr_interface.set_render_target_size_multiplier(XR_RENDER_SCALE)
 
 	_apply_environment(DAY_PARAMS)
 
@@ -90,7 +96,7 @@ func _ready() -> void:
 	# (carrera comun con autoloads), reflejamos el estado actual y aplicamos
 	# la lente inicial.
 	if not DataManager.catalog.is_empty():
-		var ver: String = DataManager.catalog.get("version", "?")
+		var ver: String = String(DataManager.catalog.get("version", "?"))
 		_update_sync_label("loaded(%s) %d lentes [%s]" % [
 			DataManager.catalog_source,
 			DataManager.get_lens_ids().size(),
@@ -98,7 +104,6 @@ func _ready() -> void:
 		])
 		_apply_initial_lens()
 
-	_start_day_night_cycle()
 	_setup_streaming_capture()
 
 
@@ -193,6 +198,7 @@ const SHADER_PARAM_MAP := {
 	"blur_medium":    ["blur_medium_l",    "blur_medium_r"],
 	"blur_far":       ["blur_far_l",       "blur_far_r"],
 	"halo_intensity": ["halo_intensity_l", "halo_intensity_r"],
+	"contrast_loss":  ["contrast_loss_l",  "contrast_loss_r"],
 }
 
 
@@ -223,9 +229,32 @@ func _on_vision_state_changed(eye: String, params: Dictionary) -> void:
 	for key in SHADER_PARAM_MAP.keys():
 		if params.has(key):
 			var uniform_name: String = SHADER_PARAM_MAP[key][eye_idx]
-			mat.set_shader_parameter(uniform_name, float(params[key]))
+			var value := float(params[key])
+			# Si los halos estan desactivados en esta escena, forzamos su
+			# intensidad a 0 sin alterar el catalogo (se restaura al reactivar).
+			if key == "halo_intensity" and not halos_enabled:
+				value = 0.0
+			mat.set_shader_parameter(uniform_name, value)
 
 	_update_lens_hud()
+
+
+## Activa o desactiva los halos en runtime. Al cambiar, reaplica el estado de
+## vision actual de ambos ojos para que los uniforms reflejen la decision.
+func set_halos_enabled(enabled: bool) -> void:
+	if halos_enabled == enabled:
+		return
+	halos_enabled = enabled
+	print("main: halos ", "ON" if enabled else "OFF")
+	for eye in ["left", "right"]:
+		var state: Dictionary = DataManager.current_vision_state.get(eye, {})
+		if not state.is_empty():
+			_on_vision_state_changed(eye, state)
+
+
+## Invierte el estado actual de los halos (util para enlazar a un boton).
+func toggle_halos() -> void:
+	set_halos_enabled(not halos_enabled)
 
 
 func _update_lens_hud() -> void:
@@ -259,37 +288,24 @@ func _on_right_hand_button_pressed(name: String) -> void:
 			# Trigger — reset Blend: misma lente en ambos ojos (la del ojo izq).
 			_lens_index_right = _lens_index_left
 			DataManager.apply_lens(ids[_lens_index_left], "both")
+		"grip_click":
+			# Grip — toggle del shader post-proceso (modo "sin lentes").
+			_toggle_post_process()
 
 
-# ====================================================================
-# Day/Night cycle
-# ====================================================================
-func _start_day_night_cycle() -> void:
-	_cycle_timer = Timer.new()
-	_cycle_timer.wait_time = DAY_NIGHT_INTERVAL
-	_cycle_timer.one_shot = false
-	_cycle_timer.timeout.connect(_toggle_day_night)
-	add_child(_cycle_timer)
-	_cycle_timer.start()
+func _toggle_post_process() -> void:
+	_post_process_enabled = not _post_process_enabled
+	post_process_quad.visible = _post_process_enabled
+	var tag := "ON" if _post_process_enabled else "OFF (sin lentes)"
+	print("main: post-process ", tag)
+	_update_lens_hud_with_toggle()
 
 
-func _toggle_day_night() -> void:
-	is_night = not is_night
-	var target_params: Dictionary = NIGHT_PARAMS if is_night else DAY_PARAMS
-
-	# Secuencia: fade-out -> swap del environment -> hold -> fade-in.
-	var tween := create_tween()
-	tween.tween_method(_set_fade_alpha, 0.0, 1.0, FADE_DURATION).set_trans(Tween.TRANS_SINE)
-	tween.tween_callback(func() -> void: _apply_environment(target_params))
-	tween.tween_interval(HOLD_AT_BLACK)
-	tween.tween_method(_set_fade_alpha, 1.0, 0.0, FADE_DURATION).set_trans(Tween.TRANS_SINE)
-
-
-func _set_fade_alpha(alpha: float) -> void:
-	var mat := fade_quad.get_active_material(0) as ShaderMaterial
-	if mat == null:
-		return
-	mat.set_shader_parameter("alpha", alpha)
+func _update_lens_hud_with_toggle() -> void:
+	if not _post_process_enabled:
+		sync_label.text = "SIN LENTES\n(grip para volver)"
+	else:
+		_update_lens_hud()
 
 
 func _apply_environment(params: Dictionary) -> void:
@@ -318,8 +334,7 @@ func _process(delta: float) -> void:
 	if fps_accumulator >= 0.5:
 		var fps := fps_frames / fps_accumulator
 		var frame_ms := (fps_accumulator / fps_frames) * 1000.0
-		var mode := "noche" if is_night else "dia"
-		fps_label.text = "FPS: %d\nFrame: %.2f ms\nmodo: %s" % [int(fps), frame_ms, mode]
+		fps_label.text = "FPS: %d\nFrame: %.2f ms\nmodo: dia" % [int(fps), frame_ms]
 		_update_stream_hud()
 		fps_accumulator = 0.0
 		fps_frames = 0

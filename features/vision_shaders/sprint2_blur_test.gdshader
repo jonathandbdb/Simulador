@@ -37,8 +37,26 @@ uniform float halo_intensity_r : hint_range(0.0, 1.0) = 0.0;
 uniform float halo_threshold   : hint_range(0.0, 1.0) = 0.75;
 uniform vec3  halo_tint = vec3(1.05, 1.0, 0.78);  // amarillo-blanco realista
 
+// === Perdida de contraste (sensibilidad al contraste reducida) ===
+// Caracteristica de IOLs multifocales/trifocales: la luz se reparte entre
+// varios focos, bajando la sensibilidad al contraste (imagen mas "lavada").
+// 0 = sin perdida (monofocal), ~0.3 = trifocal en condiciones exigentes.
+uniform float contrast_loss_l : hint_range(0.0, 0.6) = 0.0;
+uniform float contrast_loss_r : hint_range(0.0, 0.6) = 0.0;
+
+// === Sprint 10: error focal dinamico (libro en la mano) ===
+// 0 = ojo enfocado al objeto sostenido; 1 = objeto totalmente fuera de foco.
+// Calculado en CPU por book_holder.gd a partir de:
+//   |distancia_libro_camara - lens.focal_distance_m|
+// Reemplaza progresivamente el blur base en campo cercano: si el libro esta
+// en la distancia focal de la lente, los pixeles cercanos pueden quedar nitidos.
+uniform float runtime_focus_error_l : hint_range(0.0, 1.0) = 0.0;
+uniform float runtime_focus_error_r : hint_range(0.0, 1.0) = 0.0;
+uniform vec2  book_screen_uv = vec2(0.5, 0.5);
+uniform float book_screen_radius : hint_range(0.0, 0.5) = 0.0;
+
 // === Constantes de muestreo ===
-const float BLUR_RADIUS_PX     = 12.0;   // antes 4.0 — diferenciacion mas visible
+const float BLUR_RADIUS_PX     = 7.0;    // suavizado del kernel — menos artefactos blocky
 const float HALO_INNER_RING_PX = 18.0;   // primer anillo difractivo
 const float HALO_OUTER_RING_PX = 32.0;   // segundo anillo difractivo (1.8x)
 const float HALO_INNER_WEIGHT  = 1.0;
@@ -99,15 +117,17 @@ vec3 halo_rings(vec2 uv, vec2 texel, float intensity) {
 	for (int i = 0; i < 8; i++) {
 		vec3 ci = texture(screen_texture, uv + dirs[i] * texel * radius_inner).rgb;
 		vec3 co = texture(screen_texture, uv + dirs[i] * texel * radius_outer).rgb;
-		float li = max(ci.r, max(ci.g, ci.b));
-		float lo = max(co.r, max(co.g, co.b));
+		float li = dot(ci, vec3(0.2126, 0.7152, 0.0722));
+		float lo = dot(co, vec3(0.2126, 0.7152, 0.0722));
 		if (li > halo_threshold) {
-			float strength = (li - halo_threshold) * inv_above;
-			halo += ci * (strength * strength) * HALO_INNER_WEIGHT;
+			// Clamp del strength: evita que un pixel HDR (>1.0 en Forward+ lineal)
+			// genere un halo desbordado. Saturamos a 1.0 antes del falloff^2.
+			float strength = clamp((li - halo_threshold) * inv_above, 0.0, 1.0);
+			halo += clamp(ci, 0.0, 1.0) * (strength * strength) * HALO_INNER_WEIGHT;
 		}
 		if (lo > halo_threshold) {
-			float strength = (lo - halo_threshold) * inv_above;
-			halo += co * (strength * strength) * HALO_OUTER_WEIGHT;
+			float strength = clamp((lo - halo_threshold) * inv_above, 0.0, 1.0);
+			halo += clamp(co, 0.0, 1.0) * (strength * strength) * HALO_OUTER_WEIGHT;
 		}
 	}
 	// Promediar y aplicar tinte cromatico del halo.
@@ -123,17 +143,46 @@ void fragment() {
 
 	float blur_amount;
 	float halo_amount;
+	float runtime_err;
+	float contrast_amount;
 	if (VIEW_INDEX == VIEW_MONO_LEFT) {
 		blur_amount = blur_for_distance(dist_m, blur_near_l, blur_medium_l, blur_far_l);
 		halo_amount = halo_intensity_l;
+		runtime_err = runtime_focus_error_l;
+		contrast_amount = contrast_loss_l;
 	} else {
 		blur_amount = blur_for_distance(dist_m, blur_near_r, blur_medium_r, blur_far_r);
 		halo_amount = halo_intensity_r;
+		runtime_err = runtime_focus_error_r;
+		contrast_amount = contrast_loss_r;
 	}
+
+	// El error focal domina el campo cercano-intermedio. Para el libro usamos
+	// ademas una mascara en pantalla, porque Label3D/materiales transparentes no
+	// siempre escriben profundidad estable en el depth texture de post-proceso.
+	float near_weight = 1.0 - smoothstep(near_distance, far_distance, dist_m);
+	float book_dist = distance(uv, book_screen_uv);
+	float book_mask = 1.0 - smoothstep(book_screen_radius * 0.65, book_screen_radius, book_dist);
+	float focus_weight = max(near_weight, book_mask);
+	blur_amount = clamp(mix(blur_amount, runtime_err, focus_weight), 0.0, 1.0);
 
 	vec3 base = texture(screen_texture, uv).rgb;
 	vec3 blurred = box_blur_9tap(uv, texel, BLUR_RADIUS_PX * blur_amount);
 	vec3 color = mix(base, blurred, blur_amount);
+
+	// Perdida de contraste: comprime el rango alrededor del gris medio. Se aplica
+	// a la imagen retiniana (base + blur) ANTES del halo, porque el halo es luz
+	// dispersada adicional que se suma encima.
+	color = (color - 0.5) * (1.0 - contrast_amount) + 0.5;
+
+	// El halo simula la dispersion de luz de las IOL multifocales alrededor de
+	// fuentes de luz REALES (lamparas, faros). Con tonemapping AGX la pagina del
+	// libro iluminada NO se clipea a blanco: su luminancia queda por debajo del
+	// umbral (halo_threshold ~0.9), por lo que NO genera halo a ninguna distancia.
+	// Solo las fuentes muy brillantes (lampara de escritorio) superan el umbral y
+	// producen el halo. Asi se evita el "blanco quemado" al alejar el libro y el
+	// efecto sigue siendo clinicamente correcto: el halo depende del brillo de la
+	// fuente, no de la distancia.
 	color += halo_rings(uv, texel, halo_amount);
 
 	ALBEDO = color;

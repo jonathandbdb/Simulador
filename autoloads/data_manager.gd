@@ -213,6 +213,9 @@ func _params_to_defaults(params_def: Dictionary) -> Dictionary:
 		var entry = params_def[key]
 		if entry is Dictionary and entry.has("default"):
 			result[key] = entry["default"]
+		else:
+			# Soporta valores directos (ej: focal_distances_m como Array).
+			result[key] = entry
 	return result
 
 
