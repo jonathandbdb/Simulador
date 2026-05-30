@@ -63,7 +63,14 @@ uniform float book_screen_radius : hint_range(0.0, 0.5) = 0.0;
 
 // === Constantes de muestreo ===
 const float BLUR_RADIUS_PX     = 7.0;    // suavizado del kernel — menos artefactos blocky
-const float CLEAR_RADIUS_M     = 0.15;   // tolerancia minima nitida alrededor del foco
+// El desenfoque optico es proporcional al error de enfoque en DIOPTRIAS (1/dist),
+// no en metros. De cerca las dioptrias cambian muy rapido (0.35 m=2.86 D,
+// 0.70 m=1.43 D) y de lejos se aplanan; por eso al estirar el brazo el libro
+// mejora de forma visible y a partir de ~2 m ya se ve nitido. profundidad_foco_m
+// se convierte a una tolerancia dioptrica con DOF_M_TO_D, y MAX_DEFOCUS_D fija
+// cuanto error de enfoque (en D) corresponde al desenfoque maximo.
+const float MAX_DEFOCUS_D      = 3.0;    // error de enfoque (D) que satura el blur
+const float DOF_M_TO_D         = 0.5;    // mapea profundidad_foco_m a tolerancia (D)
 const float HALO_INNER_RING_PX = 18.0;   // primer anillo difractivo
 const float HALO_OUTER_RING_PX = 32.0;   // segundo anillo difractivo (1.8x)
 const float HALO_INNER_WEIGHT  = 1.0;
@@ -76,22 +83,32 @@ float linear_depth_meters(float raw_depth, vec2 uv, mat4 inv_proj) {
 	return length(view.xyz / view.w);
 }
 
-// Distancia (m) al foco mas cercano que este activo (>0).
-float dist_to_nearest_focus(float d, float f_far, float f_int, float f_near) {
+// Dioptrias de una distancia (1/m). Clamp a 5 cm para evitar division por ~0.
+float diopters(float d) {
+	return 1.0 / max(d, 0.05);
+}
+
+// Error de enfoque (en dioptrias) respecto al foco mas cercano que este activo.
+// Trabajar en dioptrias hace que la mejoria al alejar un objeto cercano sea
+// notoria (la curva 1/d es empinada cerca) y que de lejos todo quede nitido.
+float defocus_diopters(float d, float f_far, float f_int, float f_near) {
+	float dd = diopters(d);
 	float best = 1.0e9;
-	if (f_far  > 0.001) best = min(best, abs(d - f_far));
-	if (f_int  > 0.001) best = min(best, abs(d - f_int));
-	if (f_near > 0.001) best = min(best, abs(d - f_near));
+	if (f_far  > 0.001) best = min(best, abs(dd - diopters(f_far)));
+	if (f_int  > 0.001) best = min(best, abs(dd - diopters(f_int)));
+	if (f_near > 0.001) best = min(best, abs(dd - diopters(f_near)));
 	return best;
 }
 
-// Curva de desenfoque: nitido dentro de la profundidad de foco, sube hasta
-// 'max_blur' a medida que el objeto se aleja de todo foco.
+// Curva de desenfoque: nitido dentro de la profundidad de foco (tolerancia
+// dioptrica), y sube de forma proporcional al error de enfoque hasta 'max_blur'
+// cuando el objeto queda a MAX_DEFOCUS_D dioptrias de todo foco.
 float blur_from_focus(float d, float f_far, float f_int, float f_near,
-		float depth_of_focus, float max_blur) {
-	float err = dist_to_nearest_focus(d, f_far, f_int, f_near);
-	float outer = max(depth_of_focus, CLEAR_RADIUS_M + 0.001);
-	return max_blur * smoothstep(CLEAR_RADIUS_M, outer, err);
+		float depth_of_focus_m, float max_blur) {
+	float err_d = defocus_diopters(d, f_far, f_int, f_near);
+	float tol_d = depth_of_focus_m * DOF_M_TO_D;   // zona nitida en dioptrias
+	float over  = max(err_d - tol_d, 0.0);
+	return max_blur * clamp(over / MAX_DEFOCUS_D, 0.0, 1.0);
 }
 
 vec3 box_blur_9tap(vec2 uv, vec2 texel, float radius_px) {
