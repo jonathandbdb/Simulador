@@ -216,6 +216,13 @@ Para el estado actual del avance ver `progress.txt`.
 
 **Criterio de salida:** demo grabada (screen capture del Quest) mostrando el mismo escenario nocturno con las 3 lentes del seed. Halos claramente distintos. FPS estable. Cambio entre lentes desde tablet sin glitch.
 
+> **Análisis ampliado (mayo 2026):** ver [context/fase_6_escena_nocturna_disfotopsias.md](context/fase_6_escena_nocturna_disfotopsias.md).
+> Diseño aprobado pero **reservado para Quest 3** (más potente, dispositivo final). Amplía este sprint con:
+> halos de **hasta 3 anillos** (difractivo), **destellos/starburst** como parámetro nuevo de lente
+> (`destello_intensity` + `destello_rayos`), y **astigmatismo independiente de la lente** (toggle del
+> oftalmólogo con eje y magnitud, genera rayas en las luces). Nota: el celular ya **no** usa el viejo
+> `runtime_focus_error`; reusa el mecanismo `book_distance_m` + curva de focos/dioptrías del consultorio.
+
 ### Sprint 12 — F5 OTA core
 **Estado:** PENDIENTE
 **Objetivo:** auto-actualizacion de assets (PCK) funcionando.
