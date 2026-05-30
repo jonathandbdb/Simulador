@@ -13,7 +13,9 @@ extends Node
 
 # Backend hardcodeado temporalmente (LAN de desarrollo).
 # TODO: volver al resolver runtime cuando se valide conectividad desde Quest.
-const BACKEND_URL := "http://192.168.2.12:8080"
+# IMPORTANTE: esta IP debe coincidir con la del PC que corre el backend (docker).
+# Si cambias de red/router, actualiza esta IP (ver 'ipconfig' del PC).
+const BACKEND_URL := "http://192.168.10.44:8080"
 const CATALOG_ENDPOINT := "/api/lenses"
 const SYNC_TIMEOUT_SECONDS := 5.0
 
@@ -205,6 +207,29 @@ func apply_lens(lens_id: String, eye: String = "both") -> void:
 	var left_id: String = current_vision_state["left"].get("lens_id", "")
 	var right_id: String = current_vision_state["right"].get("lens_id", "")
 	blend_mode_enabled = left_id != "" and right_id != "" and left_id != right_id
+
+
+## Aplica un override de parametros en tiempo real sobre el estado de vision de
+## uno o ambos ojos. SOLO modifica current_vision_state en memoria: NO toca el
+## catalogo, ni la cache user://, ni los defaults. Pensado para que la tablet
+## ajuste valores de una lente ya aplicada sin alterar la base de datos.
+## params: { "blur_near": 0.42, "halo_intensity": 0.7, ... }
+## eye: "left" | "right" | "both".
+func override_params(params: Dictionary, eye: String = "both") -> void:
+	if params.is_empty():
+		return
+	var targets := ["left", "right"] if eye == "both" else [eye]
+	for e in targets:
+		if not current_vision_state.has(e):
+			continue
+		var state: Dictionary = current_vision_state[e]
+		# Si no hay lente aplicada en ese ojo, no hay nada que ajustar.
+		if state.is_empty():
+			continue
+		for key in params.keys():
+			state[key] = params[key]
+		current_vision_state[e] = state
+		vision_state_changed.emit(e, state)
 
 
 func _params_to_defaults(params_def: Dictionary) -> Dictionary:

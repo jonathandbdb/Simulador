@@ -216,6 +216,34 @@ theme_override_constants/separation = 6
 [node name="Separator3" type="HSeparator" parent="Margin/HBox/ControlPanel/VBox"]
 layout_mode = 2
 
+[node name="ParamsHeader" type="HBoxContainer" parent="Margin/HBox/ControlPanel/VBox"]
+layout_mode = 2
+
+[node name="ParamsTitle" type="Label" parent="Margin/HBox/ControlPanel/VBox/ParamsHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Ajuste en vivo:"
+theme_override_colors/font_color = Color(0.7, 0.75, 0.85, 1)
+
+[node name="ResetButton" type="Button" parent="Margin/HBox/ControlPanel/VBox/ParamsHeader"]
+layout_mode = 2
+text = "Restaurar"
+custom_minimum_size = Vector2(100, 0)
+disabled = true
+
+[node name="ParamsScroll" type="ScrollContainer" parent="Margin/HBox/ControlPanel/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="ParamsList" type="VBoxContainer" parent="Margin/HBox/ControlPanel/VBox/ParamsScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Separator4" type="HSeparator" parent="Margin/HBox/ControlPanel/VBox"]
+layout_mode = 2
+
 [node name="StateLabel" type="Label" parent="Margin/HBox/ControlPanel/VBox"]
 layout_mode = 2
 text = "Estado actual:\n  L: -\n  R: -"

@@ -1,38 +1,84 @@
-# Godot 4+ specific ignores
+# ==========================================================
+# Godot 4+
+# ==========================================================
 .godot/
+.import/
 /android/
+*.translation
+# Los archivos .uid de Godot 4 SI se versionan (no ignorar).
 
-# Export artefactos
+# ==========================================================
+# Export / artefactos de build
+# ==========================================================
 /build/
 *.apk
 *.aab
 *.pck
 *.zip
+*.idsig
 
-# Export presets contienen rutas absolutas y pueden referenciar keystores
-# Cada dev configura su preset local. Si en el futuro hay que compartir
-# uno limpio (sin keystore), commitearlo como export_presets.cfg.example.
+# Export presets contienen rutas absolutas y pueden referenciar keystores.
+# Cada dev configura su preset local. Si hay que compartir uno limpio (sin
+# keystore), commitearlo como export_presets.cfg.example.
 export_presets.cfg
 
+# ==========================================================
 # Keystores y secretos
+# ==========================================================
 *.keystore
 *.jks
 *.p12
+*.pem
+*.key
+.env
+*.env
 
-# Backend
+# ==========================================================
+# Backend (Python / FastAPI)
+# ==========================================================
 backend/.env
 backend/*.db
-backend/__pycache__/
-backend/.venv/
-backend/venv/
+backend/*.sqlite
+backend/*.sqlite3
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Editores
+# Datos persistidos por contenedores (MinIO, Postgres, etc.)
+backend/data/
+backend/minio_data/
+backend/pgdata/
+
+# ==========================================================
+# Editores / IDE
+# ==========================================================
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+
+# Workflow del loop autonomo (instrucciones locales del usuario).
 .github/
 
-# OS
+# ==========================================================
+# Logs y temporales
+# ==========================================================
+*.log
+*.tmp
+logs/
+
+# ==========================================================
+# Sistema operativo
+# ==========================================================
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 .DS_Store
+.AppleDouble

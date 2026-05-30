@@ -33,6 +33,8 @@ const DEFAULT_PORT := 9090
 @onready var discovered_list: HBoxContainer = $Margin/HBox/StreamPanel/VBox/DiscoveredList
 @onready var eye_option: OptionButton = $Margin/HBox/ControlPanel/VBox/EyeOption
 @onready var lens_list: VBoxContainer = $Margin/HBox/ControlPanel/VBox/LensListScroll/LensList
+@onready var params_list: VBoxContainer = $Margin/HBox/ControlPanel/VBox/ParamsScroll/ParamsList
+@onready var reset_button: Button = $Margin/HBox/ControlPanel/VBox/ParamsHeader/ResetButton
 @onready var state_label: Label = $Margin/HBox/ControlPanel/VBox/StateLabel
 
 var _peer := WebSocketPeer.new()
@@ -46,6 +48,13 @@ var _connecting: bool = false
 var _catalog_lenses: Array = []
 var _lenses_by_id: Dictionary = {}
 var _vision_state: Dictionary = {}
+
+# Ajuste en vivo: lente cuyos parametros se estan editando en los sliders,
+# y mapa param->control para poder restaurar/leer valores.
+var _editing_lens_id: String = ""
+var _param_sliders: Dictionary = {}  # param_name -> HSlider
+var _param_value_labels: Dictionary = {}  # param_name -> Label
+var _param_defaults: Dictionary = {}  # param_name -> float (default de la lente)
 
 const HEADER_BOTH := 0x42  # 'B'
 const HEADER_LEFT := 0x4C  # 'L'
@@ -74,6 +83,9 @@ func _ready() -> void:
 
 	connect_button.pressed.connect(_on_connect_pressed)
 	_update_status("desconectado")
+
+	# Boton para restaurar los valores por defecto de la lente en edicion.
+	reset_button.pressed.connect(_on_reset_params_pressed)
 
 	# Discovery (Opcion A): UDP broadcast en :9091. El autoload DiscoveryBeacon
 	# (en modo listener cuando feature "tablet" esta activa) cachea hosts vistos.
@@ -251,6 +263,151 @@ func _on_lens_button_pressed(lens_id: String) -> void:
 	if eye == "right" or eye == "both":
 		_vision_state["right"] = {"lens_id": lens_id}
 	_update_state_label()
+	# Al aplicar la lente, el visor la cargo con sus valores por defecto:
+	# reconstruimos los sliders de ajuste en vivo desde esos defaults.
+	_build_params_editor(lens_id)
+
+
+# ====================================================================
+# Ajuste en vivo de parametros (no afecta base de datos ni cache)
+# ====================================================================
+func _build_params_editor(lens_id: String) -> void:
+	_editing_lens_id = lens_id
+	_param_sliders.clear()
+	_param_value_labels.clear()
+	_param_defaults.clear()
+	for child in params_list.get_children():
+		child.queue_free()
+
+	var lens: Dictionary = _lenses_by_id.get(lens_id, {})
+	var params_def = lens.get("params", {})
+	if not (params_def is Dictionary) or params_def.is_empty():
+		reset_button.disabled = true
+		var lbl := Label.new()
+		lbl.text = "(esta lente no tiene parametros editables)"
+		lbl.add_theme_font_size_override("font_size", 12)
+		lbl.add_theme_color_override("font_color", Color(0.5, 0.55, 0.65))
+		params_list.add_child(lbl)
+		return
+
+	var added := 0
+	for key in params_def.keys():
+		var entry = params_def[key]
+		# Solo parametros numericos con default/min/max son editables.
+		if not (entry is Dictionary) or not entry.has("default") \
+				or not entry.has("min") or not entry.has("max"):
+			continue
+		var def_val := float(entry["default"])
+		var min_val := float(entry["min"])
+		var max_val := float(entry["max"])
+		_param_defaults[key] = def_val
+		_add_param_row(String(key), min_val, max_val, def_val)
+		added += 1
+
+	reset_button.disabled = added == 0
+	if added == 0:
+		var lbl := Label.new()
+		lbl.text = "(esta lente no tiene parametros editables)"
+		lbl.add_theme_font_size_override("font_size", 12)
+		lbl.add_theme_color_override("font_color", Color(0.5, 0.55, 0.65))
+		params_list.add_child(lbl)
+
+
+func _add_param_row(param_name: String, min_val: float, max_val: float, value: float) -> void:
+	var row := VBoxContainer.new()
+	row.add_theme_constant_override("separation", 2)
+
+	var header := HBoxContainer.new()
+	var name_lbl := Label.new()
+	name_lbl.text = param_name
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.add_theme_font_size_override("font_size", 13)
+	name_lbl.add_theme_color_override("font_color", Color(0.78, 0.82, 0.9))
+	header.add_child(name_lbl)
+
+	var value_lbl := Label.new()
+	value_lbl.text = "%.3f" % value
+	value_lbl.add_theme_font_size_override("font_size", 13)
+	value_lbl.add_theme_color_override("font_color", Color(0.6, 0.85, 0.7))
+	header.add_child(value_lbl)
+	row.add_child(header)
+
+	var slider := HSlider.new()
+	slider.min_value = min_val
+	slider.max_value = max_val
+	slider.step = max((max_val - min_val) / 200.0, 0.001)
+	slider.value = value
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.value_changed.connect(_on_param_slider_changed.bind(param_name))
+	row.add_child(slider)
+
+	params_list.add_child(row)
+	_param_sliders[param_name] = slider
+	_param_value_labels[param_name] = value_lbl
+
+
+func _on_param_slider_changed(value: float, param_name: String) -> void:
+	if _param_value_labels.has(param_name):
+		_param_value_labels[param_name].text = "%.3f" % value
+	_send_param_override(param_name, value)
+
+
+## Devuelve a que ojos aplica un ajuste de la lente en edicion: el override
+## sigue a la LENTE, no al selector "Aplicar a:". Si ambos ojos tienen la misma
+## lente -> "both"; si solo uno la tiene (modo blend) -> ese ojo; si ninguno la
+## tiene -> "" (no se envia nada).
+func _eyes_for_editing_lens() -> String:
+	var left_id: String = _vision_state.get("left", {}).get("lens_id", "")
+	var right_id: String = _vision_state.get("right", {}).get("lens_id", "")
+	var on_left := left_id == _editing_lens_id
+	var on_right := right_id == _editing_lens_id
+	if on_left and on_right:
+		return "both"
+	if on_left:
+		return "left"
+	if on_right:
+		return "right"
+	return ""
+
+
+func _send_param_override(param_name: String, value: float) -> void:
+	if _peer.get_ready_state() != WebSocketPeer.STATE_OPEN:
+		return
+	var eye := _eyes_for_editing_lens()
+	if eye == "":
+		return
+	var cmd := {
+		"cmd": "override_params",
+		"eye": eye,
+		"params": {param_name: value},
+	}
+	_peer.send_text(JSON.stringify(cmd))
+
+
+func _on_reset_params_pressed() -> void:
+	if _editing_lens_id == "" or _param_defaults.is_empty():
+		return
+	# Reaplicar todos los defaults: actualiza sliders + manda override.
+	# El reset sigue a la lente en edicion (mismos ojos que los ajustes).
+	var eye := _eyes_for_editing_lens()
+	var all_defaults: Dictionary = {}
+	for key in _param_defaults.keys():
+		var def_val: float = _param_defaults[key]
+		if _param_sliders.has(key):
+			# set_value_no_signal evita disparar un override por cada slider.
+			_param_sliders[key].set_value_no_signal(def_val)
+		if _param_value_labels.has(key):
+			_param_value_labels[key].text = "%.3f" % def_val
+		all_defaults[key] = def_val
+	if eye != "" and _peer.get_ready_state() == WebSocketPeer.STATE_OPEN:
+		var cmd := {
+			"cmd": "override_params",
+			"eye": eye,
+			"params": all_defaults,
+		}
+		_peer.send_text(JSON.stringify(cmd))
+
+
 
 
 func _update_state_label() -> void:

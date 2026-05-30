@@ -161,6 +161,16 @@ func _on_streaming_command_received(cmd: Dictionary, peer_id: int) -> void:
 				_lens_index_right = idx
 			DataManager.apply_lens(lens_id, eye)
 			print("main: tablet aplico '%s' en ojo '%s'" % [lens_id, eye])
+		"override_params":
+			# Ajuste en vivo de parametros de la lente desde la tablet.
+			# NO toca catalogo ni cache: solo el estado de vision en memoria.
+			var params: Dictionary = cmd.get("params", {})
+			var eye2: String = cmd.get("eye", "both")
+			if params.is_empty():
+				push_warning("main: override_params sin params (peer %d)" % peer_id)
+				return
+			DataManager.override_params(params, eye2)
+			print("main: tablet ajusto %d param(s) en ojo '%s'" % [params.size(), eye2])
 		_:
 			push_warning("main: comando desconocido de peer %d: %s" % [peer_id, cmd])
 
