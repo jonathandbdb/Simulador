@@ -1,18 +1,18 @@
 {
-  "version": "0.0.6-seed",
+  "version": "0.1.0-focos",
   "catalogo": [
     {
       "id": "monofocal",
       "nombre": "Monofocal Estandar",
       "descripcion": "Foco unico (lejos). Mejor contraste y casi sin halos, pero la vision intermedia/cercana se desenfoca: necesita gafas para leer.",
       "params": {
-        "halo_intensity": { "default": 0.03, "min": 0.0, "max": 0.3 },
-        "contrast_loss":  { "default": 0.0,  "min": 0.0, "max": 0.2 },
-        "blur_near":      { "default": 0.35, "min": 0.0, "max": 1.0 },
-        "blur_medium":    { "default": 0.15, "min": 0.0, "max": 1.0 },
-        "blur_far":       { "default": 0.0,  "min": 0.0, "max": 1.0 },
-        "focal_distance_m": { "default": 1.5, "min": 0.3, "max": 100.0 },
-        "focal_distances_m": [1.5]
+        "foco_lejos_m":       { "default": 6.0,  "min": 0.0, "max": 20.0 },
+        "foco_intermedio_m":  { "default": 0.0,  "min": 0.0, "max": 20.0 },
+        "foco_cerca_m":       { "default": 0.0,  "min": 0.0, "max": 20.0 },
+        "profundidad_foco_m": { "default": 0.6,  "min": 0.1, "max": 5.0 },
+        "desenfoque_max":     { "default": 0.9,  "min": 0.0, "max": 1.0 },
+        "halo_intensity":     { "default": 0.03, "min": 0.0, "max": 0.3 },
+        "contrast_loss":      { "default": 0.0,  "min": 0.0, "max": 0.2 }
       }
     },
     {
@@ -20,13 +20,13 @@
       "nombre": "PanOptix Pro",
       "descripcion": "Trifocal (cerca/intermedio/lejos). Vision util en todas las distancias, pero reparte la luz en 3 focos: pierde sensibilidad al contraste y produce halos nocturnos marcados.",
       "params": {
-        "halo_intensity": { "default": 0.6,  "min": 0.0, "max": 1.0 },
-        "contrast_loss":  { "default": 0.20, "min": 0.0, "max": 0.5 },
-        "blur_near":      { "default": 0.1,  "min": 0.0, "max": 1.0 },
-        "blur_medium":    { "default": 0.07, "min": 0.0, "max": 1.0 },
-        "blur_far":       { "default": 0.03, "min": 0.0, "max": 1.0 },
-        "focal_distance_m": { "default": 0.4, "min": 0.3, "max": 100.0 },
-        "focal_distances_m": [0.4, 0.8, 6.0]
+        "foco_lejos_m":       { "default": 6.0,  "min": 0.0, "max": 20.0 },
+        "foco_intermedio_m":  { "default": 0.8,  "min": 0.0, "max": 20.0 },
+        "foco_cerca_m":       { "default": 0.4,  "min": 0.0, "max": 20.0 },
+        "profundidad_foco_m": { "default": 0.25, "min": 0.1, "max": 5.0 },
+        "desenfoque_max":     { "default": 0.55, "min": 0.0, "max": 1.0 },
+        "halo_intensity":     { "default": 0.6,  "min": 0.0, "max": 1.0 },
+        "contrast_loss":      { "default": 0.20, "min": 0.0, "max": 0.5 }
       }
     },
     {
@@ -34,13 +34,13 @@
       "nombre": "Vivity EDOF",
       "descripcion": "Profundidad de foco extendida. Buena vision de lejos a intermedio y cercana funcional, con menos halos y mejor contraste que una trifocal, aunque pierde algo de contraste frente a una monofocal.",
       "params": {
-        "halo_intensity": { "default": 0.15, "min": 0.0, "max": 0.6 },
-        "contrast_loss":  { "default": 0.12, "min": 0.0, "max": 0.3 },
-        "blur_near":      { "default": 0.18, "min": 0.0, "max": 1.0 },
-        "blur_medium":    { "default": 0.06, "min": 0.0, "max": 1.0 },
-        "blur_far":       { "default": 0.02, "min": 0.0, "max": 1.0 },
-        "focal_distance_m": { "default": 1.2, "min": 0.3, "max": 100.0 },
-        "focal_distances_m": [0.7, 1.5, 6.0]
+        "foco_lejos_m":       { "default": 6.0,  "min": 0.0, "max": 20.0 },
+        "foco_intermedio_m":  { "default": 1.0,  "min": 0.0, "max": 20.0 },
+        "foco_cerca_m":       { "default": 0.0,  "min": 0.0, "max": 20.0 },
+        "profundidad_foco_m": { "default": 1.2,  "min": 0.1, "max": 5.0 },
+        "desenfoque_max":     { "default": 0.4,  "min": 0.0, "max": 1.0 },
+        "halo_intensity":     { "default": 0.15, "min": 0.0, "max": 0.6 },
+        "contrast_loss":      { "default": 0.12, "min": 0.0, "max": 0.3 }
       }
     }
   ]

@@ -73,16 +73,19 @@ def _load_default_catalog() -> dict:
                 print(f"[seed] error leyendo {p}: {e}")
     # Fallback minimo.
     return {
-        "version": "0.0.1-fallback",
+        "version": "0.1.0-fallback",
         "catalogo": [
             {
                 "id": "monofocal",
                 "nombre": "Monofocal Estandar",
                 "params": {
+                    "foco_lejos_m": {"default": 6.0, "min": 0.0, "max": 20.0},
+                    "foco_intermedio_m": {"default": 0.0, "min": 0.0, "max": 20.0},
+                    "foco_cerca_m": {"default": 0.0, "min": 0.0, "max": 20.0},
+                    "profundidad_foco_m": {"default": 0.6, "min": 0.1, "max": 5.0},
+                    "desenfoque_max": {"default": 0.9, "min": 0.0, "max": 1.0},
                     "halo_intensity": {"default": 0.05, "min": 0.0, "max": 0.3},
-                    "blur_near": {"default": 0.8, "min": 0.0, "max": 1.0},
-                    "blur_medium": {"default": 0.2, "min": 0.0, "max": 1.0},
-                    "blur_far": {"default": 0.0, "min": 0.0, "max": 1.0},
+                    "contrast_loss": {"default": 0.0, "min": 0.0, "max": 0.2},
                 },
             },
         ],

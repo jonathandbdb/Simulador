@@ -204,11 +204,13 @@ func _update_sync_label(text: String) -> void:
 ## Mapeo parametros del catalogo -> uniforms del shader.
 ## Las claves coinciden con sprint2_blur_test.gdshader.
 const SHADER_PARAM_MAP := {
-	"blur_near":      ["blur_near_l",      "blur_near_r"],
-	"blur_medium":    ["blur_medium_l",    "blur_medium_r"],
-	"blur_far":       ["blur_far_l",       "blur_far_r"],
-	"halo_intensity": ["halo_intensity_l", "halo_intensity_r"],
-	"contrast_loss":  ["contrast_loss_l",  "contrast_loss_r"],
+	"foco_lejos_m":       ["foco_lejos_l",       "foco_lejos_r"],
+	"foco_intermedio_m":  ["foco_intermedio_l",  "foco_intermedio_r"],
+	"foco_cerca_m":       ["foco_cerca_l",       "foco_cerca_r"],
+	"profundidad_foco_m": ["profundidad_foco_l", "profundidad_foco_r"],
+	"desenfoque_max":     ["desenfoque_max_l",   "desenfoque_max_r"],
+	"halo_intensity":     ["halo_intensity_l",   "halo_intensity_r"],
+	"contrast_loss":      ["contrast_loss_l",    "contrast_loss_r"],
 }
 
 

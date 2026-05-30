@@ -18,18 +18,26 @@ render_mode unshaded, depth_test_disabled, depth_draw_never, blend_mix, cull_dis
 uniform sampler2D screen_texture : hint_screen_texture, filter_linear, repeat_disable;
 uniform sampler2D depth_texture  : hint_depth_texture,  filter_nearest, repeat_disable;
 
-// === Planos focales (metros, espacio mundo) ===
-uniform float near_distance   : hint_range(0.1, 5.0)  = 0.4;
-uniform float medium_distance : hint_range(0.5, 10.0) = 2.0;
-uniform float far_distance    : hint_range(2.0, 50.0) = 10.0;
+// === Modelo de focos por ojo (metros). Foco = 0 => no usado ===
+// La nitidez se calcula como distancia al foco mas cercano: si el objeto cae
+// dentro de la profundidad de foco de alguno, se ve nitido; si no, se desenfoca
+// hasta 'desenfoque_max'. Esta UNICA curva gobierna tanto la escena como el
+// libro en la mano, asi no hay dos sistemas de blur compitiendo.
+uniform float foco_lejos_l      : hint_range(0.0, 50.0) = 6.0;
+uniform float foco_intermedio_l : hint_range(0.0, 50.0) = 0.0;
+uniform float foco_cerca_l      : hint_range(0.0, 50.0) = 0.0;
+uniform float foco_lejos_r      : hint_range(0.0, 50.0) = 6.0;
+uniform float foco_intermedio_r : hint_range(0.0, 50.0) = 0.0;
+uniform float foco_cerca_r      : hint_range(0.0, 50.0) = 0.0;
 
-// === Blur por ojo (0 = nitido, 1 = blur maximo) ===
-uniform float blur_near_l   : hint_range(0.0, 1.0) = 0.0;
-uniform float blur_medium_l : hint_range(0.0, 1.0) = 0.0;
-uniform float blur_far_l    : hint_range(0.0, 1.0) = 0.0;
-uniform float blur_near_r   : hint_range(0.0, 1.0) = 0.0;
-uniform float blur_medium_r : hint_range(0.0, 1.0) = 0.0;
-uniform float blur_far_r    : hint_range(0.0, 1.0) = 0.0;
+// Profundidad de foco (m): ancho de la zona nitida alrededor de cada foco.
+// EDOF => alto (plateau ancho); trifocal => bajo (picos estrechos).
+uniform float profundidad_foco_l : hint_range(0.05, 5.0) = 0.6;
+uniform float profundidad_foco_r : hint_range(0.05, 5.0) = 0.6;
+
+// Desenfoque maximo (0..1) cuando el objeto queda fuera de toda zona de foco.
+uniform float desenfoque_max_l : hint_range(0.0, 1.0) = 0.9;
+uniform float desenfoque_max_r : hint_range(0.0, 1.0) = 0.9;
 
 // === Halo ===
 uniform float halo_intensity_l : hint_range(0.0, 1.0) = 0.0;
@@ -44,19 +52,18 @@ uniform vec3  halo_tint = vec3(1.05, 1.0, 0.78);  // amarillo-blanco realista
 uniform float contrast_loss_l : hint_range(0.0, 0.6) = 0.0;
 uniform float contrast_loss_r : hint_range(0.0, 0.6) = 0.0;
 
-// === Sprint 10: error focal dinamico (libro en la mano) ===
-// 0 = ojo enfocado al objeto sostenido; 1 = objeto totalmente fuera de foco.
-// Calculado en CPU por book_holder.gd a partir de:
-//   |distancia_libro_camara - lens.focal_distance_m|
-// Reemplaza progresivamente el blur base en campo cercano: si el libro esta
-// en la distancia focal de la lente, los pixeles cercanos pueden quedar nitidos.
-uniform float runtime_focus_error_l : hint_range(0.0, 1.0) = 0.0;
-uniform float runtime_focus_error_r : hint_range(0.0, 1.0) = 0.0;
+// === Libro en la mano (Sprint 10) ===
+// El libro sostenido no escribe profundidad estable en el depth texture, asi que
+// book_holder.gd calcula en CPU su distancia real a la camara y la pasa aca,
+// junto con una mascara en pantalla. Dentro de la mascara usamos esta distancia
+// con la MISMA curva de focos, en vez del depth. book_distance_m = 0 => sin libro.
+uniform float book_distance_m = 0.0;
 uniform vec2  book_screen_uv = vec2(0.5, 0.5);
 uniform float book_screen_radius : hint_range(0.0, 0.5) = 0.0;
 
 // === Constantes de muestreo ===
 const float BLUR_RADIUS_PX     = 7.0;    // suavizado del kernel — menos artefactos blocky
+const float CLEAR_RADIUS_M     = 0.15;   // tolerancia minima nitida alrededor del foco
 const float HALO_INNER_RING_PX = 18.0;   // primer anillo difractivo
 const float HALO_OUTER_RING_PX = 32.0;   // segundo anillo difractivo (1.8x)
 const float HALO_INNER_WEIGHT  = 1.0;
@@ -69,18 +76,22 @@ float linear_depth_meters(float raw_depth, vec2 uv, mat4 inv_proj) {
 	return length(view.xyz / view.w);
 }
 
-float blur_for_distance(float dist, float bn, float bm, float bf) {
-	if (dist <= near_distance) {
-		return bn * smoothstep(0.0, near_distance, dist);
-	} else if (dist <= medium_distance) {
-		float t = (dist - near_distance) / (medium_distance - near_distance);
-		return mix(bn, bm, t);
-	} else if (dist <= far_distance) {
-		float t = (dist - medium_distance) / (far_distance - medium_distance);
-		return mix(bm, bf, t);
-	} else {
-		return bf;
-	}
+// Distancia (m) al foco mas cercano que este activo (>0).
+float dist_to_nearest_focus(float d, float f_far, float f_int, float f_near) {
+	float best = 1.0e9;
+	if (f_far  > 0.001) best = min(best, abs(d - f_far));
+	if (f_int  > 0.001) best = min(best, abs(d - f_int));
+	if (f_near > 0.001) best = min(best, abs(d - f_near));
+	return best;
+}
+
+// Curva de desenfoque: nitido dentro de la profundidad de foco, sube hasta
+// 'max_blur' a medida que el objeto se aleja de todo foco.
+float blur_from_focus(float d, float f_far, float f_int, float f_near,
+		float depth_of_focus, float max_blur) {
+	float err = dist_to_nearest_focus(d, f_far, f_int, f_near);
+	float outer = max(depth_of_focus, CLEAR_RADIUS_M + 0.001);
+	return max_blur * smoothstep(CLEAR_RADIUS_M, outer, err);
 }
 
 vec3 box_blur_9tap(vec2 uv, vec2 texel, float radius_px) {
@@ -141,30 +152,30 @@ void fragment() {
 	float raw_depth = texture(depth_texture, uv).r;
 	float dist_m = linear_depth_meters(raw_depth, uv, INV_PROJECTION_MATRIX);
 
+	// En la mascara del libro, su profundidad no es confiable: usamos la
+	// distancia real calculada en CPU (book_distance_m) con la misma curva.
+	float book_mask = 0.0;
+	if (book_screen_radius > 0.0001 && book_distance_m > 0.0001) {
+		float book_dist_uv = distance(uv, book_screen_uv);
+		book_mask = 1.0 - smoothstep(book_screen_radius * 0.65, book_screen_radius, book_dist_uv);
+	}
+	float eff_dist = mix(dist_m, book_distance_m, book_mask);
+
 	float blur_amount;
 	float halo_amount;
-	float runtime_err;
 	float contrast_amount;
 	if (VIEW_INDEX == VIEW_MONO_LEFT) {
-		blur_amount = blur_for_distance(dist_m, blur_near_l, blur_medium_l, blur_far_l);
+		blur_amount = blur_from_focus(eff_dist, foco_lejos_l, foco_intermedio_l,
+			foco_cerca_l, profundidad_foco_l, desenfoque_max_l);
 		halo_amount = halo_intensity_l;
-		runtime_err = runtime_focus_error_l;
 		contrast_amount = contrast_loss_l;
 	} else {
-		blur_amount = blur_for_distance(dist_m, blur_near_r, blur_medium_r, blur_far_r);
+		blur_amount = blur_from_focus(eff_dist, foco_lejos_r, foco_intermedio_r,
+			foco_cerca_r, profundidad_foco_r, desenfoque_max_r);
 		halo_amount = halo_intensity_r;
-		runtime_err = runtime_focus_error_r;
 		contrast_amount = contrast_loss_r;
 	}
-
-	// El error focal domina el campo cercano-intermedio. Para el libro usamos
-	// ademas una mascara en pantalla, porque Label3D/materiales transparentes no
-	// siempre escriben profundidad estable en el depth texture de post-proceso.
-	float near_weight = 1.0 - smoothstep(near_distance, far_distance, dist_m);
-	float book_dist = distance(uv, book_screen_uv);
-	float book_mask = 1.0 - smoothstep(book_screen_radius * 0.65, book_screen_radius, book_dist);
-	float focus_weight = max(near_weight, book_mask);
-	blur_amount = clamp(mix(blur_amount, runtime_err, focus_weight), 0.0, 1.0);
+	blur_amount = clamp(blur_amount, 0.0, 1.0);
 
 	vec3 base = texture(screen_texture, uv).rgb;
 	vec3 blurred = box_blur_9tap(uv, texel, BLUR_RADIUS_PX * blur_amount);

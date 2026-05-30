@@ -291,7 +291,16 @@ func _build_params_editor(lens_id: String) -> void:
 		return
 
 	var added := 0
-	for key in params_def.keys():
+	# Recorremos en orden clinico (focos primero); cualquier param extra que no
+	# este en PARAM_ORDER se agrega despues, respetando el orden del catalogo.
+	var ordered_keys: Array = []
+	for k in PARAM_ORDER:
+		if params_def.has(k):
+			ordered_keys.append(k)
+	for k in params_def.keys():
+		if not ordered_keys.has(k):
+			ordered_keys.append(k)
+	for key in ordered_keys:
 		var entry = params_def[key]
 		# Solo parametros numericos con default/min/max son editables.
 		if not (entry is Dictionary) or not entry.has("default") \
@@ -313,20 +322,52 @@ func _build_params_editor(lens_id: String) -> void:
 		params_list.add_child(lbl)
 
 
+# Nombres clinicos y unidades para mostrar en los sliders (no afectan el
+# protocolo: las claves siguen siendo las del catalogo/shader).
+const PARAM_LABELS := {
+	"foco_lejos_m":       "Foco lejano",
+	"foco_intermedio_m":  "Foco intermedio",
+	"foco_cerca_m":       "Foco cercano",
+	"profundidad_foco_m": "Profundidad de foco",
+	"desenfoque_max":     "Desenfoque maximo",
+	"halo_intensity":     "Halos",
+	"contrast_loss":      "Perdida de contraste",
+}
+
+# Orden clinico de presentacion (los focos primero, luego el resto).
+const PARAM_ORDER := [
+	"foco_lejos_m", "foco_intermedio_m", "foco_cerca_m",
+	"profundidad_foco_m", "desenfoque_max", "halo_intensity", "contrast_loss",
+]
+
+
+func _param_label(param_name: String) -> String:
+	return PARAM_LABELS.get(param_name, param_name)
+
+
+func _format_param_value(param_name: String, value: float) -> String:
+	# Distancias en metros: mostrar unidad; 0 = foco desactivado.
+	if String(param_name).ends_with("_m"):
+		if value <= 0.001:
+			return "off"
+		return "%.2f m" % value
+	return "%.2f" % value
+
+
 func _add_param_row(param_name: String, min_val: float, max_val: float, value: float) -> void:
 	var row := VBoxContainer.new()
 	row.add_theme_constant_override("separation", 2)
 
 	var header := HBoxContainer.new()
 	var name_lbl := Label.new()
-	name_lbl.text = param_name
+	name_lbl.text = _param_label(param_name)
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_lbl.add_theme_font_size_override("font_size", 13)
 	name_lbl.add_theme_color_override("font_color", Color(0.78, 0.82, 0.9))
 	header.add_child(name_lbl)
 
 	var value_lbl := Label.new()
-	value_lbl.text = "%.3f" % value
+	value_lbl.text = _format_param_value(param_name, value)
 	value_lbl.add_theme_font_size_override("font_size", 13)
 	value_lbl.add_theme_color_override("font_color", Color(0.6, 0.85, 0.7))
 	header.add_child(value_lbl)
@@ -348,7 +389,7 @@ func _add_param_row(param_name: String, min_val: float, max_val: float, value: f
 
 func _on_param_slider_changed(value: float, param_name: String) -> void:
 	if _param_value_labels.has(param_name):
-		_param_value_labels[param_name].text = "%.3f" % value
+		_param_value_labels[param_name].text = _format_param_value(param_name, value)
 	_send_param_override(param_name, value)
 
 
@@ -397,7 +438,7 @@ func _on_reset_params_pressed() -> void:
 			# set_value_no_signal evita disparar un override por cada slider.
 			_param_sliders[key].set_value_no_signal(def_val)
 		if _param_value_labels.has(key):
-			_param_value_labels[key].text = "%.3f" % def_val
+			_param_value_labels[key].text = _format_param_value(key, def_val)
 		all_defaults[key] = def_val
 	if eye != "" and _peer.get_ready_state() == WebSocketPeer.STATE_OPEN:
 		var cmd := {
