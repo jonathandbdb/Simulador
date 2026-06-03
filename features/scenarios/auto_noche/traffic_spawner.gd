@@ -39,13 +39,41 @@ func _ready() -> void:
 		push_warning("TrafficSpawner: traffic_path no asignado.")
 		return
 
+	# Construir la curva siempre por código — evita problemas de
+	# serialización de Curve3D._data en el formato TSCN de Godot 4.
+	_build_default_curve()
+
 	_path_length = _path.curve.get_baked_length()
 	if _path_length < 0.1:
-		push_warning("TrafficSpawner: la curva del Path3D parece vacía.")
+		push_warning("TrafficSpawner: la curva del Path3D quedó vacía.")
 		return
 
 	for i in range(car_count):
 		_spawn_car(i)
+
+
+## Construye la trayectoria de tráfico por código.
+## El camino va de izquierda (x=-20) a derecha (x=20),
+## a ~3.5 m delante del paciente (z=-3.5) y ~0.9 m bajo su posición (y=-0.9).
+func _build_default_curve() -> void:
+	if _path.curve == null:
+		_path.curve = Curve3D.new()
+	else:
+		_path.curve.clear_points()
+	# add_point(position, in_tangent, out_tangent)
+	# Tangentes apuntan a lo largo del eje X para una curva suave izq→der.
+	_path.curve.add_point(
+		Vector3(-20.0, -0.9, -3.5),
+		Vector3.ZERO,
+		Vector3( 6.0,  0.0,  0.0))
+	_path.curve.add_point(
+		Vector3(  0.0, -0.9, -3.5),
+		Vector3(-6.0,  0.0,  0.0),
+		Vector3( 6.0,  0.0,  0.0))
+	_path.curve.add_point(
+		Vector3( 20.0, -0.9, -2.5),
+		Vector3(-6.0,  0.0,  0.0),
+		Vector3.ZERO)
 
 
 func _spawn_car(index: int) -> void:
@@ -63,11 +91,9 @@ func _spawn_car(index: int) -> void:
 	if car_mesh != null:
 		car_body.mesh = car_mesh
 	else:
-		# Placeholder: caja ~4.5 m largo × 1.8 m ancho × 1.4 m alto.
 		var box := BoxMesh.new()
 		box.size = Vector3(1.8, 1.4, 4.5)
 		car_body.mesh = box
-		# Material oscuro para que el cuerpo no aporte luz; los faros son lo visual.
 		var mat := StandardMaterial3D.new()
 		mat.albedo_color = Color(0.05, 0.05, 0.05)
 		mat.metallic = 0.6
@@ -75,33 +101,73 @@ func _spawn_car(index: int) -> void:
 		car_body.material_override = mat
 	follower.add_child(car_body)
 
-	# Luces traseras: OmniLight3D rojo tenue en la parte posterior.
-	var tail_light := OmniLight3D.new()
-	tail_light.name = "TailLight_%d" % index
-	tail_light.light_color = Color(1.0, 0.05, 0.05)
-	tail_light.light_energy = 2.0
-	tail_light.omni_range = 4.0
-	tail_light.position = Vector3(0.0, 0.5, 2.4)
-	follower.add_child(tail_light)
+	# Luces traseras: dos SpotLight3D apuntando hacia atrás (+Z).
+	_add_taillight(follower, index, Vector3(-0.55, 0.45,  2.3))
+	_add_taillight(follower, index, Vector3( 0.55, 0.45,  2.3))
 
-	# Faro izquierdo.
-	_add_headlight(follower, index, Vector3(-0.7, 0.5, -2.4))
-	# Faro derecho.
-	_add_headlight(follower, index, Vector3( 0.7, 0.5, -2.4))
+	# Faros delanteros: SpotLight3D con punto emisivo (sin cono).
+	_add_headlight(follower, index, Vector3(-0.6, 0.45, -2.3))
+	_add_headlight(follower, index, Vector3( 0.6, 0.45, -2.3))
+
+
+## Luz trasera: SpotLight rojo apuntando al +Z (posterior del auto).
+func _add_taillight(parent: Node3D, index: int, offset: Vector3) -> void:
+	var spot := SpotLight3D.new()
+	spot.light_color    = Color(1.0, 0.04, 0.04)
+	spot.light_energy   = 4.0
+	spot.spot_range     = 8.0
+	spot.spot_angle     = 35.0
+	spot.spot_angle_attenuation = 0.6
+	# Apunta hacia atrás (+Z en espacio local del PathFollow3D).
+	spot.rotation_degrees = Vector3(0.0, 180.0, 0.0)
+	spot.position = offset
+	parent.add_child(spot)
+
+	# Punto emisivo rojo para hacer la luz más credible.
+	var glow := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.045
+	sm.height = 0.09
+	glow.mesh = sm
+	var gm := StandardMaterial3D.new()
+	gm.albedo_color               = Color(1.0, 0.05, 0.05)
+	gm.emission_enabled           = true
+	gm.emission                   = Color(1.0, 0.05, 0.05)
+	gm.emission_energy_multiplier = 6.0
+	gm.shading_mode               = BaseMaterial3D.SHADING_MODE_UNSHADED
+	glow.material_override = gm
+	glow.position = offset
+	parent.add_child(glow)
 
 
 func _add_headlight(parent: Node3D, index: int, offset: Vector3) -> void:
+	# SpotLight para iluminar la carretera.
 	var spot := SpotLight3D.new()
-	spot.name = "Headlight_%d" % index
-	spot.light_color = headlight_color
-	spot.light_energy = headlight_energy
-	spot.spot_range = headlight_range
-	spot.spot_angle = 28.0
+	spot.light_color            = headlight_color
+	spot.light_energy           = headlight_energy
+	spot.spot_range             = headlight_range
+	spot.spot_angle             = 28.0
 	spot.spot_angle_attenuation = 0.5
-	# Apunta hacia adelante (−Z en espacio local del PathFollow3D).
-	spot.rotation_degrees = Vector3(-5.0, 0.0, 0.0)
-	spot.position = offset
+	spot.rotation_degrees       = Vector3(-5.0, 0.0, 0.0)
+	spot.position               = offset
 	parent.add_child(spot)
+
+	# Punto emisivo blanco-azulado: es la fuente visible que genera halos/destellos
+	# en el shader post-process. Radio pequeño para que sea una fuente puntual.
+	var glow := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.055
+	sm.height = 0.11
+	glow.mesh = sm
+	var gm := StandardMaterial3D.new()
+	gm.albedo_color               = headlight_color
+	gm.emission_enabled           = true
+	gm.emission                   = headlight_color
+	gm.emission_energy_multiplier = 12.0
+	gm.shading_mode               = BaseMaterial3D.SHADING_MODE_UNSHADED
+	glow.material_override = gm
+	glow.position = offset
+	parent.add_child(glow)
 
 
 func _process(delta: float) -> void:

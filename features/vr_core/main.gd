@@ -74,12 +74,12 @@ const DAY_PARAMS := {
 const NIGHT_PARAMS := {
 	"sun_energy":    0.04,
 	"sun_color":     Color(0.7, 0.75, 1.0, 1),
-	"sky_top":       Color(0.01, 0.01, 0.03, 1),
-	"sky_horizon":   Color(0.03, 0.03, 0.06, 1),
-	"ground_bottom": Color(0.01, 0.01, 0.01, 1),
-	"ground_horizon":Color(0.02, 0.02, 0.03, 1),
-	"ambient_color": Color(0.02, 0.02, 0.04, 1),
-	"ambient_energy":0.08,
+	"sky_top":       Color(0.02, 0.02, 0.05, 1),
+	"sky_horizon":   Color(0.05, 0.05, 0.09, 1),
+	"ground_bottom": Color(0.02, 0.02, 0.03, 1),
+	"ground_horizon":Color(0.04, 0.04, 0.06, 1),
+	"ambient_color": Color(0.08, 0.09, 0.14, 1),
+	"ambient_energy":0.40,
 }
 
 @onready var post_process_quad: MeshInstance3D = $XROrigin3D/XRCamera3D/PostProcessQuad

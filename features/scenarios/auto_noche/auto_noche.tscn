@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" path="res://features/scenarios/auto_noche/traffic_spawner.gd" id="1_traffic"]
 [ext_resource type="Script" path="res://features/scenarios/auto_noche/phone_holder.gd" id="2_phone"]
+[ext_resource type="Script" path="res://features/scenarios/auto_noche/night_street.gd" id="3_street"]
 
 
 [sub_resource type="BoxMesh" id="dashboard_mesh"]
@@ -34,16 +35,15 @@ height = 0.24
 albedo_color = Color(0.05, 1.0, 0.05, 1)
 emission_enabled = true
 emission = Color(0.05, 1.0, 0.05, 1)
-emission_energy_multiplier = 4.0
-
-[sub_resource type="Curve3D" id="traffic_curve"]
-bake_interval = 0.2
-_data = {
-"points": PackedVector3Array(-3.5, 0.0, 0.0, -20.0, -0.9, -3.5, -3.5, 0.0, 0.0, -3.5, 0.0, 0.0, 0.0, -0.9, -3.5, 3.5, 0.0, 0.0, -3.5, 0.0, 0.0, 20.0, -0.9, -2.5, 3.5, 0.0, 0.0),
-"tilts": PackedFloat32Array(0, 0, 0)
-}
+emission_energy_multiplier = 2.0
 
 [node name="AutoNoche" type="Node3D"]
+
+[node name="NightStreet" type="Node3D" parent="."]
+script = ExtResource("3_street")
+road_position = Vector3(-72, -1, 0)
+road_rotation_deg = Vector3(-90, 0, 0)
+road_scale = 0.0254
 
 [node name="CarInterior" type="Node3D" parent="."]
 
@@ -89,8 +89,8 @@ omni_range = 6.0
 [node name="LuzVerde" type="OmniLight3D" parent="Semaforo"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
 light_color = Color(0.1, 1.0, 0.1, 1)
-light_energy = 6.0
-omni_range = 8.0
+light_energy = 1.5
+omni_range = 3.5
 
 [node name="GloboVerde" type="MeshInstance3D" parent="Semaforo"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
@@ -98,7 +98,6 @@ mesh = SubResource("globo_mesh")
 material_override = SubResource("globo_verde_mat")
 
 [node name="TrafficPath" type="Path3D" parent="."]
-curve = SubResource("traffic_curve")
 
 [node name="TrafficSpawner" type="Node3D" parent="."]
 script = ExtResource("1_traffic")
