@@ -15,7 +15,7 @@ extends Node
 # TODO: volver al resolver runtime cuando se valide conectividad desde Quest.
 # IMPORTANTE: esta IP debe coincidir con la del PC que corre el backend (docker).
 # Si cambias de red/router, actualiza esta IP (ver 'ipconfig' del PC).
-const BACKEND_URL := "http://192.168.10.44:8080"
+const BACKEND_URL := "http://192.168.88.198:8080"
 const CATALOG_ENDPOINT := "/api/lenses"
 const SYNC_TIMEOUT_SECONDS := 5.0
 

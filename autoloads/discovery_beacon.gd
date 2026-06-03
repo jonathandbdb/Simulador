@@ -86,6 +86,11 @@ func _get_device_id() -> String:
 # Tablet: escucha beacons
 # ====================================================================
 func _start_listening() -> void:
+	# Android bloquea paquetes broadcast/multicast a nivel del chip WiFi aunque
+	# el permiso CHANGE_WIFI_MULTICAST_STATE este en el manifest. Se necesita
+	# adquirir un MulticastLock via WifiManager para que los paquetes lleguen.
+	_acquire_android_multicast_lock()
+
 	# Bindear en wildcard para recibir broadcasts.
 	var err := _udp.bind(BEACON_PORT, "0.0.0.0")
 	if err != OK:
@@ -93,6 +98,27 @@ func _start_listening() -> void:
 		return
 	print("DiscoveryBeacon: listening en :%d" % BEACON_PORT)
 	set_process(true)
+
+
+func _acquire_android_multicast_lock() -> void:
+	if OS.get_name() != "Android":
+		return
+	if not ClassDB.class_exists("JavaClassWrapper"):
+		push_warning("DiscoveryBeacon: JavaClassWrapper no disponible — discovery puede no funcionar.")
+		return
+	var ActivityThread = JavaClassWrapper.wrap("android.app.ActivityThread")
+	var app = ActivityThread.currentApplication()
+	if app == null:
+		push_warning("DiscoveryBeacon: ActivityThread.currentApplication() devolvio null.")
+		return
+	var wifi_mgr = app.getApplicationContext().getSystemService("wifi")
+	if wifi_mgr == null:
+		push_warning("DiscoveryBeacon: WifiManager no disponible.")
+		return
+	var mc_lock = wifi_mgr.createMulticastLock("SimDiscovery")
+	mc_lock.setReferenceCounted(false)
+	mc_lock.acquire()
+	print("DiscoveryBeacon: MulticastLock adquirido OK.")
 
 
 func _process(_delta: float) -> void:

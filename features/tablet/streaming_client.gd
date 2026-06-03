@@ -36,6 +36,7 @@ const DEFAULT_PORT := 9090
 @onready var params_list: VBoxContainer = $Margin/HBox/ControlPanel/VBox/ParamsScroll/ParamsList
 @onready var reset_button: Button = $Margin/HBox/ControlPanel/VBox/ParamsHeader/ResetButton
 @onready var state_label: Label = $Margin/HBox/ControlPanel/VBox/StateLabel
+@onready var scenario_list: HBoxContainer = $Margin/HBox/ControlPanel/VBox/ScenarioList
 
 var _peer := WebSocketPeer.new()
 # Texturas separadas por ojo (el visor manda streams independientes en
@@ -55,6 +56,10 @@ var _editing_lens_id: String = ""
 var _param_sliders: Dictionary = {}  # param_name -> HSlider
 var _param_value_labels: Dictionary = {}  # param_name -> Label
 var _param_defaults: Dictionary = {}  # param_name -> float (default de la lente)
+
+# Escenarios disponibles (recibidos en hello.scenarios).
+var _available_scenarios: Array = []
+var _current_scenario_id: String = ""
 
 const HEADER_BOTH := 0x42  # 'B'
 const HEADER_LEFT := 0x4C  # 'L'
@@ -177,7 +182,10 @@ func _on_text_received(text: String) -> void:
 				if lens is Dictionary and lens.has("id"):
 					_lenses_by_id[String(lens["id"])] = lens
 			_vision_state = parsed.get("vision_state", {})
+			_available_scenarios = parsed.get("scenarios", [])
+			_current_scenario_id = String(parsed.get("scenario", ""))
 			_rebuild_lens_list()
+			_rebuild_scenario_list()
 			_update_state_label()
 			_update_status("conectado | catalogo %s | %d lentes" % [
 				parsed.get("catalog_version", "?"),
@@ -450,13 +458,59 @@ func _on_reset_params_pressed() -> void:
 
 
 
+# ====================================================================
+# Cambio de escena
+# ====================================================================
+func _rebuild_scenario_list() -> void:
+	for child in scenario_list.get_children():
+		child.queue_free()
+	for scenario_id in _available_scenarios:
+		var sid: String = String(scenario_id)
+		var btn := Button.new()
+		btn.text = _scenario_label(sid)
+		btn.custom_minimum_size = Vector2(90, 44)
+		btn.toggle_mode = true
+		btn.button_pressed = (sid == _current_scenario_id)
+		btn.pressed.connect(_on_scenario_button_pressed.bind(sid))
+		scenario_list.add_child(btn)
+
+
+func _scenario_label(sid: String) -> String:
+	match sid:
+		"consultorio": return "Consultorio"
+		"auto_noche":  return "Auto Noche"
+		_:             return sid.capitalize()
+
+
+func _on_scenario_button_pressed(scenario_id: String) -> void:
+	if _peer.get_ready_state() != WebSocketPeer.STATE_OPEN:
+		_update_status("no hay conexion para enviar comando")
+		return
+	_current_scenario_id = scenario_id
+	# Actualizar apariencia de botones (toggle visual).
+	for child in scenario_list.get_children():
+		if child is Button:
+			child.button_pressed = (_scenario_label(scenario_id) == child.text or scenario_id == _btn_sid(child.text))
+	var cmd := {"cmd": "load_scenario", "scenario": scenario_id}
+	_peer.send_text(JSON.stringify(cmd))
+	_update_state_label()
+
+
+func _btn_sid(label_text: String) -> String:
+	match label_text:
+		"Consultorio": return "consultorio"
+		"Auto Noche":  return "auto_noche"
+		_:             return label_text.to_lower()
+
 
 func _update_state_label() -> void:
 	var left_id: String = _vision_state.get("left", {}).get("lens_id", "?")
 	var right_id: String = _vision_state.get("right", {}).get("lens_id", "?")
 	var is_blend := left_id != right_id
 	var blend := " (Blend)" if is_blend else ""
-	state_label.text = "Estado actual:\n  L: %s\n  R: %s%s" % [left_id, right_id, blend]
+	state_label.text = "Estado actual:\n  Escena: %s\n  L: %s\n  R: %s%s" % [
+		_scenario_label(_current_scenario_id) if _current_scenario_id != "" else "-",
+		left_id, right_id, blend]
 	# Split del stream: si ambos ojos comparten lente -> panel unico.
 	# Si hay blend -> dos paneles lado a lado con su lente arriba.
 	if is_blend:

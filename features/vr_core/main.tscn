@@ -211,10 +211,14 @@ tracker = &"right_hand"
 
 ; ====================================================================
 ; Sprint 10 — Consultorio + libro en la mano
+; Sprint 11 — ScenarioContainer permite hot-swap de escenas en runtime
 ; ====================================================================
 
-; Escenario del consultorio (oficina, escritorio, silla, iluminacion).
-[node name="Consultorio" parent="." instance=ExtResource("4_consultorio")]
+; Contenedor de escenario activo. main.gd instancia/libera hijos aqui.
+[node name="ScenarioContainer" type="Node3D" parent="."]
+
+; Escena inicial: consultorio (se reemplaza en runtime con load_scenario()).
+[node name="Consultorio" parent="ScenarioContainer" instance=ExtResource("4_consultorio")]
 
 ; Libro 3D anclado al controller derecho. Se mueve fisicamente con la mano.
 ; La escala del GLTF original es grande (~13 unidades de ancho); se reduce

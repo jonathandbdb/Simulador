@@ -37,6 +37,28 @@ const INITIAL_LENS_ID := "panoptix"
 # false, halo_intensity se fuerza a 0 en el shader sin tocar el catalogo.
 @export var halos_enabled: bool = false
 
+# ====================================================================
+# Escenarios disponibles
+# ====================================================================
+## Mapa de escenas disponibles. Clave = id usado en el comando load_scenario.
+## halos: activa destello/halo cuando es true.
+## env: "day" | "night" — que PARAMS aplicar al entorno de main.
+## show_book: muestra el libro en la mano derecha.
+const SCENARIOS := {
+	"consultorio": {
+		"scene":     "res://features/scenarios/consultorio/consultorio.tscn",
+		"halos":     false,
+		"env":       "day",
+		"show_book": true,
+	},
+	"auto_noche": {
+		"scene":     "res://features/scenarios/auto_noche/auto_noche.tscn",
+		"halos":     true,
+		"env":       "night",
+		"show_book": false,
+	},
+}
+
 # Parametros visuales para el consultorio en modo dia fijo.
 const DAY_PARAMS := {
 	"sun_energy": 1.2,
@@ -48,6 +70,18 @@ const DAY_PARAMS := {
 	"ambient_energy": 0.4,
 }
 
+# Parametros visuales para la escena nocturna.
+const NIGHT_PARAMS := {
+	"sun_energy":    0.04,
+	"sun_color":     Color(0.7, 0.75, 1.0, 1),
+	"sky_top":       Color(0.01, 0.01, 0.03, 1),
+	"sky_horizon":   Color(0.03, 0.03, 0.06, 1),
+	"ground_bottom": Color(0.01, 0.01, 0.01, 1),
+	"ground_horizon":Color(0.02, 0.02, 0.03, 1),
+	"ambient_color": Color(0.02, 0.02, 0.04, 1),
+	"ambient_energy":0.08,
+}
+
 @onready var post_process_quad: MeshInstance3D = $XROrigin3D/XRCamera3D/PostProcessQuad
 @onready var fade_quad: MeshInstance3D = $XROrigin3D/XRCamera3D/FadeQuad
 @onready var fps_label: Label3D = $XROrigin3D/XRCamera3D/FpsHud
@@ -56,7 +90,10 @@ const DAY_PARAMS := {
 @onready var dir_light: DirectionalLight3D = $DirectionalLight3D
 @onready var world_env: WorldEnvironment = $WorldEnvironment
 @onready var right_hand: XRController3D = $XROrigin3D/RightHand
+@onready var left_hand: XRController3D = $XROrigin3D/LeftHand
 @onready var xr_camera: XRCamera3D = $XROrigin3D/XRCamera3D
+@onready var scenario_container: Node3D = $ScenarioContainer
+@onready var book_holder: Node3D = $XROrigin3D/RightHand/BookHolder
 
 var xr_interface: XRInterface
 var fps_accumulator: float = 0.0
@@ -69,6 +106,9 @@ var _streaming_capture: Node = null
 # Toggle del shader post-proceso. Cuando esta en false, el quad se oculta
 # y se ve el render "crudo" del consultorio (sin DoF/halos).
 var _post_process_enabled: bool = true
+# Escenario activo y su nodo raiz en ScenarioContainer.
+var _current_scenario_id: String = "consultorio"
+var _scenario_node: Node3D = null
 
 
 func _ready() -> void:
@@ -91,6 +131,12 @@ func _ready() -> void:
 
 	# Input del control derecho — cicla lentes en runtime.
 	right_hand.button_pressed.connect(_on_right_hand_button_pressed)
+	# Input del control izquierdo — cicla escenas (Y) y toggle halos (X).
+	left_hand.button_pressed.connect(_on_left_hand_button_pressed)
+
+	# Referencia inicial al nodo de escena (el Consultorio instanciado en .tscn).
+	if scenario_container.get_child_count() > 0:
+		_scenario_node = scenario_container.get_child(0) as Node3D
 
 	# Si DataManager ya cargo el catalogo antes de conectar las seniales
 	# (carrera comun con autoloads), reflejamos el estado actual y aplicamos
@@ -135,6 +181,8 @@ func _on_streaming_client_connected(peer_id: int, host: String) -> void:
 		"catalog_version": DataManager.catalog.get("version", "?"),
 		"lenses": DataManager.catalog.get("catalogo", []),
 		"vision_state": DataManager.current_vision_state,
+		"scenario": _current_scenario_id,
+		"scenarios": SCENARIOS.keys(),
 	}
 	StreamingServer.send_text_to(peer_id, JSON.stringify(msg))
 
@@ -171,6 +219,26 @@ func _on_streaming_command_received(cmd: Dictionary, peer_id: int) -> void:
 				return
 			DataManager.override_params(params, eye2)
 			print("main: tablet ajusto %d param(s) en ojo '%s'" % [params.size(), eye2])
+		"set_astigmatism":
+			# Astigmatismo: canal independiente del catalogo de lentes.
+			# Campos: eye ("left"|"right"|"both"), enabled (bool),
+			#         magnitude (float px), angle (float rad).
+			var eye_a: String  = cmd.get("eye", "both")
+			var enabled: bool  = cmd.get("enabled", false)
+			var magnitude: float = float(cmd.get("magnitude", 0.0))
+			var angle: float     = float(cmd.get("angle", 0.0))
+			set_astigmatism(eye_a, enabled, magnitude, angle)
+			print("main: tablet astig eye='%s' enabled=%s mag=%.1f ang=%.2f" % [
+				eye_a, str(enabled), magnitude, angle])
+		"load_scenario":
+			# Cambio de escena desde la tablet.
+			# Campos: scenario (string id, ver SCENARIOS).
+			var scenario_id: String = cmd.get("scenario", "")
+			if scenario_id == "":
+				push_warning("main: load_scenario sin scenario (peer %d)" % peer_id)
+				return
+			load_scenario(scenario_id)
+			print("main: tablet cargo escenario '%s'" % scenario_id)
 		_:
 			push_warning("main: comando desconocido de peer %d: %s" % [peer_id, cmd])
 
@@ -210,7 +278,17 @@ const SHADER_PARAM_MAP := {
 	"profundidad_foco_m": ["profundidad_foco_l", "profundidad_foco_r"],
 	"desenfoque_max":     ["desenfoque_max_l",   "desenfoque_max_r"],
 	"halo_intensity":     ["halo_intensity_l",   "halo_intensity_r"],
+	"halo_extra_rings":   ["halo_extra_rings_l", "halo_extra_rings_r"],
 	"contrast_loss":      ["contrast_loss_l",    "contrast_loss_r"],
+	"destello_intensity": ["destello_intensity_l", "destello_intensity_r"],
+	"destello_rayos":     ["destello_rayos_l",   "destello_rayos_r"],
+}
+
+# Estado de astigmatismo (independiente del catalogo de lentes).
+# Se controla desde la tablet con el comando "set_astigmatism".
+var _astig_state: Dictionary = {
+	"left":  {"enabled": false, "magnitude": 0.0, "angle": 0.0},
+	"right": {"enabled": false, "magnitude": 0.0, "angle": 0.0},
 }
 
 
@@ -244,7 +322,8 @@ func _on_vision_state_changed(eye: String, params: Dictionary) -> void:
 			var value := float(params[key])
 			# Si los halos estan desactivados en esta escena, forzamos su
 			# intensidad a 0 sin alterar el catalogo (se restaura al reactivar).
-			if key == "halo_intensity" and not halos_enabled:
+			if key in ["halo_intensity", "halo_extra_rings", "destello_intensity", "destello_rayos"] \
+					and not halos_enabled:
 				value = 0.0
 			mat.set_shader_parameter(uniform_name, value)
 
@@ -267,6 +346,29 @@ func set_halos_enabled(enabled: bool) -> void:
 ## Invierte el estado actual de los halos (util para enlazar a un boton).
 func toggle_halos() -> void:
 	set_halos_enabled(not halos_enabled)
+
+
+## Configura el astigmatismo por ojo. Independiente del catalogo de lentes.
+## eye: "left" | "right" | "both".
+## magnitude: longitud del streak en px (0 = apagado).
+## angle: orientacion del eje en radianes (0 = horizontal).
+func set_astigmatism(eye: String, enabled: bool, magnitude: float, angle: float) -> void:
+	var mat := post_process_quad.get_active_material(0) as ShaderMaterial
+	if mat == null:
+		return
+	var eyes: Array[String] = []
+	if eye == "both":
+		eyes = ["left", "right"]
+	else:
+		eyes = [eye]
+	for e in eyes:
+		_astig_state[e]["enabled"]   = enabled
+		_astig_state[e]["magnitude"] = magnitude
+		_astig_state[e]["angle"]     = angle
+		var suffix: String = "_l" if e == "left" else "_r"
+		mat.set_shader_parameter("astig_enabled"   + suffix, 1.0 if enabled else 0.0)
+		mat.set_shader_parameter("astig_magnitude" + suffix, magnitude)
+		mat.set_shader_parameter("astig_angle"     + suffix, angle)
 
 
 func _update_lens_hud() -> void:
@@ -305,6 +407,87 @@ func _on_right_hand_button_pressed(name: String) -> void:
 			_toggle_post_process()
 
 
+func _on_left_hand_button_pressed(name: String) -> void:
+	match name:
+		"by_button":
+			# Y — cicla a la siguiente escena disponible.
+			var ids := SCENARIOS.keys()
+			var idx := ids.find(_current_scenario_id)
+			var next_id: String = ids[(idx + 1) % ids.size()]
+			load_scenario(next_id)
+		"ax_button":
+			# X — toggle halos (util para comparar con/sin en la escena nocturna).
+			toggle_halos()
+
+
+# ====================================================================
+# Sprint 11 — Cambio de escena en runtime
+# ====================================================================
+## Carga una escena por su id (ver SCENARIOS). Hace fade negro durante el swap.
+## Puede llamarse desde la tablet (cmd "load_scenario") o desde el controller (Y).
+func load_scenario(id: String) -> void:
+	if id == _current_scenario_id:
+		return
+	var cfg: Dictionary = SCENARIOS.get(id, {})
+	if cfg.is_empty():
+		push_warning("main: escenario '%s' desconocido." % id)
+		return
+
+	print("main: cargando escenario '%s'..." % id)
+
+	# Fade a negro.
+	var fade_mat := fade_quad.get_active_material(0) as ShaderMaterial
+	var tween := create_tween()
+	tween.tween_method(func(v: float) -> void:
+		fade_mat.set_shader_parameter("alpha", v), 0.0, 1.0, 0.35)
+	await tween.finished
+
+	# Liberar escena actual.
+	if _scenario_node != null:
+		_scenario_node.queue_free()
+		_scenario_node = null
+
+	# Instanciar la nueva.
+	var packed: PackedScene = load(cfg["scene"])
+	if packed == null:
+		push_error("main: no se pudo cargar '%s'" % cfg["scene"])
+		return
+	_scenario_node = packed.instantiate() as Node3D
+	scenario_container.add_child(_scenario_node)
+	_current_scenario_id = id
+
+	_apply_scenario_config(cfg)
+
+	# Fade de vuelta.
+	tween = create_tween()
+	tween.tween_method(func(v: float) -> void:
+		fade_mat.set_shader_parameter("alpha", v), 1.0, 0.0, 0.35)
+
+	print("main: escenario '%s' activo." % id)
+
+
+func _apply_scenario_config(cfg: Dictionary) -> void:
+	# Halos / destello.
+	set_halos_enabled(cfg.get("halos", false))
+
+	# Entorno visual (cielo, luz solar).
+	var env_id: String = cfg.get("env", "day")
+	_apply_environment(NIGHT_PARAMS if env_id == "night" else DAY_PARAMS)
+
+	# Libro: visible solo en escenas de dia/consultorio.
+	book_holder.visible = cfg.get("show_book", true)
+
+	# PhoneHolder en auto_noche: conectar con PostProcessQuad y camara.
+	if _scenario_node != null:
+		var phone := _scenario_node.get_node_or_null("PhoneAnchor")
+		if phone != null:
+			phone._post_quad = post_process_quad
+			phone._camera   = xr_camera
+			# Re-init shader mat (el _ready() corrio antes de que se asignaran).
+			if phone._post_quad != null:
+				phone._shader_mat = phone._post_quad.get_active_material(0) as ShaderMaterial
+
+
 func _toggle_post_process() -> void:
 	_post_process_enabled = not _post_process_enabled
 	post_process_quad.visible = _post_process_enabled
@@ -321,20 +504,21 @@ func _update_lens_hud_with_toggle() -> void:
 
 
 func _apply_environment(params: Dictionary) -> void:
-	dir_light.light_energy = params.sun_energy
+	dir_light.light_energy = params.get("sun_energy", 1.0)
+	dir_light.light_color  = params.get("sun_color", Color.WHITE)
 
 	var env: Environment = world_env.environment
 	if env == null:
 		return
-	env.ambient_light_color = params.ambient_color
-	env.ambient_light_energy = params.ambient_energy
+	env.ambient_light_color  = params.get("ambient_color",  Color(0.6, 0.7, 0.85, 1))
+	env.ambient_light_energy = params.get("ambient_energy", 0.4)
 	var sky_mat := env.sky.sky_material as ProceduralSkyMaterial
 	if sky_mat == null:
 		return
-	sky_mat.sky_top_color = params.sky_top
-	sky_mat.sky_horizon_color = params.sky_horizon
-	sky_mat.ground_bottom_color = params.ground_bottom
-	sky_mat.ground_horizon_color = params.ground_horizon
+	sky_mat.sky_top_color      = params.get("sky_top",       Color(0.18, 0.32, 0.55, 1))
+	sky_mat.sky_horizon_color  = params.get("sky_horizon",   Color(0.5, 0.55, 0.55, 1))
+	sky_mat.ground_bottom_color  = params.get("ground_bottom",  Color(0.1, 0.1, 0.1, 1))
+	sky_mat.ground_horizon_color = params.get("ground_horizon", Color(0.4, 0.4, 0.4, 1))
 
 
 # ====================================================================
@@ -346,7 +530,7 @@ func _process(delta: float) -> void:
 	if fps_accumulator >= 0.5:
 		var fps := fps_frames / fps_accumulator
 		var frame_ms := (fps_accumulator / fps_frames) * 1000.0
-		fps_label.text = "FPS: %d\nFrame: %.2f ms\nmodo: dia" % [int(fps), frame_ms]
+		fps_label.text = "FPS: %d\nFrame: %.2f ms\nescena: %s" % [int(fps), frame_ms, _current_scenario_id]
 		_update_stream_hud()
 		fps_accumulator = 0.0
 		fps_frames = 0
