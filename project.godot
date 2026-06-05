@@ -22,10 +22,17 @@ run/main_scene.tablet="res://features/tablet/streaming_client.tscn"
 DataManager="*res://autoloads/data_manager.gd"
 StreamingServer="*res://autoloads/streaming_server.gd"
 DiscoveryBeacon="*res://autoloads/discovery_beacon.gd"
+MCPScreenshot="*res://addons/godot_mcp/mcp_screenshot_service.gd"
+MCPInputService="*res://addons/godot_mcp/mcp_input_service.gd"
+MCPGameInspector="*res://addons/godot_mcp/mcp_game_inspector_service.gd"
 
 [display]
 
 window/vsync/vsync_mode=0
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/godot_mcp/plugin.cfg")
 
 [physics]
 

@@ -153,9 +153,9 @@ surface_material_override/0 = SubResource("StandardMaterial3D_emissive")
 
 [node name="XROrigin3D" type="XROrigin3D" parent="."]
 
-[node name="XRCamera3D" type="XRCamera3D" parent="XROrigin3D"]
+[node name="XRCamera3D" type="XRCamera3D" parent="XROrigin3D" groups=["xr_camera"]]
 
-[node name="PostProcessQuad" type="MeshInstance3D" parent="XROrigin3D/XRCamera3D"]
+[node name="PostProcessQuad" type="MeshInstance3D" parent="XROrigin3D/XRCamera3D" groups=["post_process_quad"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.1)
 extra_cull_margin = 16384.0
 mesh = SubResource("QuadMesh_postprocess")
@@ -203,7 +203,7 @@ extra_cull_margin = 16384.0
 mesh = SubResource("QuadMesh_fade")
 material_override = SubResource("ShaderMaterial_fade")
 
-[node name="LeftHand" type="XRController3D" parent="XROrigin3D"]
+[node name="LeftHand" type="XRController3D" parent="XROrigin3D" groups=["left_hand"]]
 tracker = &"left_hand"
 
 [node name="RightHand" type="XRController3D" parent="XROrigin3D"]

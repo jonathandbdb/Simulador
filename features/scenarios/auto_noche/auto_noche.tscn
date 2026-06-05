@@ -1,17 +1,17 @@
-[gd_scene load_steps=16 format=3 uid="uid://auto_noche"]
+[gd_scene format=3 uid="uid://s81ko6jamk7i"]
 
-[ext_resource type="Script" path="res://features/scenarios/auto_noche/traffic_spawner.gd" id="1_traffic"]
-[ext_resource type="Script" path="res://features/scenarios/auto_noche/phone_holder.gd" id="2_phone"]
-[ext_resource type="Script" path="res://features/scenarios/auto_noche/night_street.gd" id="3_street"]
-
-
-[sub_resource type="BoxMesh" id="dashboard_mesh"]
-size = Vector3(1.6, 0.15, 0.5)
+[ext_resource type="Script" uid="uid://ckl2kba3hanls" path="res://features/scenarios/auto_noche/traffic_spawner.gd" id="1_traffic"]
+[ext_resource type="Script" uid="uid://by1r2xffwy8of" path="res://features/scenarios/auto_noche/semaforo.gd" id="2_kqsle"]
+[ext_resource type="Script" uid="uid://co1md0ierl17l" path="res://features/scenarios/auto_noche/phone_holder.gd" id="2_phone"]
+[ext_resource type="Script" uid="uid://c18ycllna4p0v" path="res://features/scenarios/auto_noche/night_street.gd" id="3_street"]
 
 [sub_resource type="StandardMaterial3D" id="interior_mat"]
 albedo_color = Color(0.06, 0.06, 0.07, 1)
 metallic = 0.1
 roughness = 0.8
+
+[sub_resource type="BoxMesh" id="dashboard_mesh"]
+size = Vector3(1.6, 0.15, 0.5)
 
 [sub_resource type="BoxMesh" id="wheel_mesh"]
 size = Vector3(0.36, 0.36, 0.04)
@@ -22,91 +22,168 @@ size = Vector3(0.5, 0.6, 0.08)
 [sub_resource type="BoxMesh" id="roof_mesh"]
 size = Vector3(1.5, 0.06, 1.2)
 
-[sub_resource type="CylinderMesh" id="poste_mesh"]
-top_radius = 0.05
-bottom_radius = 0.05
-height = 2.0
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_kqsle"]
+albedo_color = Color(0.04, 0.04, 0.05, 1)
+metallic = 0.3
+roughness = 0.6
 
-[sub_resource type="SphereMesh" id="globo_mesh"]
-radius = 0.12
-height = 0.24
+[sub_resource type="CylinderMesh" id="CylinderMesh_orpcv"]
+top_radius = 0.06
+bottom_radius = 0.06
+height = 2.6
 
-[sub_resource type="StandardMaterial3D" id="globo_verde_mat"]
-albedo_color = Color(0.05, 1.0, 0.05, 1)
+[sub_resource type="BoxMesh" id="BoxMesh_e5426"]
+size = Vector3(0.08, 0.08, 1.4)
+
+[sub_resource type="BoxMesh" id="BoxMesh_pxd6n"]
+size = Vector3(0.3, 1.12, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_2cawe"]
+shading_mode = 0
+albedo_color = Color(0.3, 0.015000001, 0, 0.3)
+
+[sub_resource type="SphereMesh" id="SphereMesh_3xvsc"]
+radius = 0.11
+height = 0.22
+
+[sub_resource type="BoxMesh" id="BoxMesh_85kgo"]
+size = Vector3(0.18, 0.04, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_nicex"]
+shading_mode = 0
+albedo_color = Color(0.3, 0.234, 0, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_is34e"]
+shading_mode = 0
+albedo_color = Color(0.030000001, 0.3, 0.030000001, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_pxd6n"]
+albedo_color = Color(0.02, 0.02, 0.03, 1)
+roughness = 0.2
 emission_enabled = true
-emission = Color(0.05, 1.0, 0.05, 1)
-emission_energy_multiplier = 2.0
+emission = Color(0.55, 0.78, 1, 1)
+emission_energy_multiplier = 3.0
 
-[node name="AutoNoche" type="Node3D"]
+[sub_resource type="BoxMesh" id="BoxMesh_2cawe"]
+size = Vector3(0.075, 0.15, 0.008)
 
-[node name="NightStreet" type="Node3D" parent="."]
+[node name="AutoNoche" type="Node3D" unique_id=278453273]
+
+[node name="NightStreet" type="Node3D" parent="." unique_id=121920874]
 script = ExtResource("3_street")
-road_position = Vector3(-72, -1, 0)
-road_rotation_deg = Vector3(-90, 0, 0)
-road_scale = 0.0254
 
-[node name="CarInterior" type="Node3D" parent="."]
+[node name="CarInterior" type="Node3D" parent="." unique_id=709569139]
 
-[node name="Dashboard" type="MeshInstance3D" parent="CarInterior"]
+[node name="Dashboard" type="MeshInstance3D" parent="CarInterior" unique_id=1259325033]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.35, -0.9)
+material_override = SubResource("interior_mat")
 mesh = SubResource("dashboard_mesh")
-material_override = SubResource("interior_mat")
 
-[node name="SteeringWheel" type="MeshInstance3D" parent="CarInterior"]
+[node name="SteeringWheel" type="MeshInstance3D" parent="CarInterior" unique_id=644250908]
 transform = Transform3D(1, 0, 0, 0, 0.707, -0.707, 0, 0.707, 0.707, 0, 0.55, -0.65)
+material_override = SubResource("interior_mat")
 mesh = SubResource("wheel_mesh")
-material_override = SubResource("interior_mat")
 
-[node name="SeatBack" type="MeshInstance3D" parent="CarInterior"]
+[node name="SeatBack" type="MeshInstance3D" parent="CarInterior" unique_id=274859713]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0.6)
+material_override = SubResource("interior_mat")
 mesh = SubResource("seat_mesh")
-material_override = SubResource("interior_mat")
 
-[node name="RoofFrame" type="MeshInstance3D" parent="CarInterior"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0)
+[node name="RoofFrame" type="MeshInstance3D" parent="CarInterior" unique_id=1695203581]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+material_override = SubResource("interior_mat")
 mesh = SubResource("roof_mesh")
-material_override = SubResource("interior_mat")
 
-[node name="Semaforo" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, 0, -12)
+[node name="Semaforo" type="Node3D" parent="." unique_id=74381860]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.5, -0.9, -4.7)
+script = ExtResource("2_kqsle")
 
-[node name="PosteMesh" type="MeshInstance3D" parent="Semaforo"]
-mesh = SubResource("poste_mesh")
-material_override = SubResource("interior_mat")
-
-[node name="LuzRoja" type="OmniLight3D" parent="Semaforo"]
+[node name="PosteMesh" type="MeshInstance3D" parent="Semaforo" unique_id=55137781]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.3, 0)
-light_color = Color(1.0, 0.05, 0.0, 1)
+material_override = SubResource("StandardMaterial3D_kqsle")
+mesh = SubResource("CylinderMesh_orpcv")
+
+[node name="Arm" type="MeshInstance3D" parent="Semaforo" unique_id=952788991]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, 0.7)
+material_override = SubResource("StandardMaterial3D_kqsle")
+mesh = SubResource("BoxMesh_e5426")
+
+[node name="Head" type="Node3D" parent="Semaforo" unique_id=1362578317]
+transform = Transform3D(0.70710677, 0, 0.70710677, 0, 1, 0, -0.70710677, 0, 0.70710677, 0, 2.25, 1.2)
+
+[node name="Housing" type="MeshInstance3D" parent="Semaforo/Head" unique_id=2043640823]
+material_override = SubResource("StandardMaterial3D_kqsle")
+mesh = SubResource("BoxMesh_pxd6n")
+
+[node name="GloboRojo" type="MeshInstance3D" parent="Semaforo/Head" unique_id=203899400]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.2, 0.37, 0)
+material_override = SubResource("StandardMaterial3D_2cawe")
+mesh = SubResource("SphereMesh_3xvsc")
+
+[node name="Visor_red" type="MeshInstance3D" parent="Semaforo/Head" unique_id=964002687]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.28, 0.49, 0)
+material_override = SubResource("StandardMaterial3D_kqsle")
+mesh = SubResource("BoxMesh_85kgo")
+
+[node name="LuzRoja" type="SpotLight3D" parent="Semaforo/Head" unique_id=614452912]
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -0.28, 0.37, 0)
+light_color = Color(1, 0.05, 0, 1)
 light_energy = 0.0
-omni_range = 6.0
+spot_range = 7.0
+spot_angle = 38.0
+spot_angle_attenuation = 0.7
 
-[node name="LuzAmarilla" type="OmniLight3D" parent="Semaforo"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-light_color = Color(1.0, 0.8, 0.0, 1)
+[node name="GloboAmarillo" type="MeshInstance3D" parent="Semaforo/Head" unique_id=1258135157]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.2, 0, 0)
+material_override = SubResource("StandardMaterial3D_nicex")
+mesh = SubResource("SphereMesh_3xvsc")
+
+[node name="Visor_yellow" type="MeshInstance3D" parent="Semaforo/Head" unique_id=2026699389]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.28, 0.12, 0)
+material_override = SubResource("StandardMaterial3D_kqsle")
+mesh = SubResource("BoxMesh_85kgo")
+
+[node name="LuzAmarilla" type="SpotLight3D" parent="Semaforo/Head" unique_id=1566039212]
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -0.28, 0, 0)
+light_color = Color(1, 0.78, 0, 1)
 light_energy = 0.0
-omni_range = 6.0
+spot_range = 7.0
+spot_angle = 38.0
+spot_angle_attenuation = 0.7
 
-[node name="LuzVerde" type="OmniLight3D" parent="Semaforo"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
-light_color = Color(0.1, 1.0, 0.1, 1)
-light_energy = 1.5
-omni_range = 3.5
+[node name="GloboVerde" type="MeshInstance3D" parent="Semaforo/Head" unique_id=690773091]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.2, -0.37, 0)
+material_override = SubResource("StandardMaterial3D_is34e")
+mesh = SubResource("SphereMesh_3xvsc")
 
-[node name="GloboVerde" type="MeshInstance3D" parent="Semaforo"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
-mesh = SubResource("globo_mesh")
-material_override = SubResource("globo_verde_mat")
+[node name="Visor_green" type="MeshInstance3D" parent="Semaforo/Head" unique_id=991728510]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.28, -0.25, 0)
+material_override = SubResource("StandardMaterial3D_kqsle")
+mesh = SubResource("BoxMesh_85kgo")
 
-[node name="TrafficPath" type="Path3D" parent="."]
+[node name="LuzVerde" type="SpotLight3D" parent="Semaforo/Head" unique_id=1583988602]
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -0.28, -0.37, 0)
+light_color = Color(0.1, 1, 0.1, 1)
+light_energy = 0.0
+spot_range = 7.0
+spot_angle = 38.0
+spot_angle_attenuation = 0.7
 
-[node name="TrafficSpawner" type="Node3D" parent="."]
+[node name="TrafficPath" type="Path3D" parent="." unique_id=1770706051]
+
+[node name="TrafficSpawner" type="Node3D" parent="." unique_id=656258937]
 script = ExtResource("1_traffic")
 traffic_path = NodePath("../TrafficPath")
-speed_mps = 16.67
-car_count = 5
+car_count = 3
 headlight_energy = 10.0
 headlight_range = 20.0
 
-[node name="PhoneAnchor" type="Node3D" parent="."]
+[node name="PhoneAnchor" type="Node3D" parent="." unique_id=2013673120]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.25, -0.1, -0.35)
 script = ExtResource("2_phone")
+phone_node_path = NodePath("PhoneMesh")
+
+[node name="PhoneMesh" type="MeshInstance3D" parent="PhoneAnchor" unique_id=1981527890]
+transform = Transform3D(1, 0, 0, 0, 0.49999997, 0.86602545, 0, -0.86602545, 0.49999997, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_pxd6n")
+mesh = SubResource("BoxMesh_2cawe")

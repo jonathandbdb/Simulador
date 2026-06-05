@@ -50,12 +50,19 @@ const SCENARIOS := {
 		"halos":     false,
 		"env":       "day",
 		"show_book": true,
+		# Umbral alto: de dia solo la lampara de escritorio (muy brillante) genera
+		# halo; la pagina iluminada no debe disparar el efecto.
+		"halo_threshold": 0.9,
 	},
 	"auto_noche": {
 		"scene":     "res://features/scenarios/auto_noche/auto_noche.tscn",
 		"halos":     true,
 		"env":       "night",
 		"show_book": false,
+		# Umbral bajo: de noche TODAS las fuentes (faros, farolas, semaforo,
+		# celular) deben superar el umbral tras el tonemap AGX y generar el
+		# efecto de la lente. Si se sube, los halos dejan de aparecer.
+		"halo_threshold": 0.55,
 	},
 }
 
@@ -68,6 +75,12 @@ const DAY_PARAMS := {
 	"ground_horizon": Color(0.4, 0.4, 0.4, 1),
 	"ambient_color": Color(0.6, 0.7, 0.85, 1),
 	"ambient_energy": 0.4,
+	# Glow apagado de dia: no hay fuentes puntuales que justifiquen bloom.
+	"glow_enabled": false,
+	# AGX comprime altas luces sin quemar (mismo criterio que el consultorio).
+	"tonemap_mode": 4,       # AGX
+	"tonemap_exposure": 1.0,
+	"tonemap_white": 6.0,
 }
 
 # Parametros visuales para la escena nocturna.
@@ -80,6 +93,21 @@ const NIGHT_PARAMS := {
 	"ground_horizon":Color(0.04, 0.04, 0.06, 1),
 	"ambient_color": Color(0.08, 0.09, 0.14, 1),
 	"ambient_energy":0.40,
+	# Glow encendido de noche: da el "bloom" alrededor de faros/semaforo/celular
+	# que, sumado al post-proceso de halos, vende la disfotopsia nocturna.
+	"glow_enabled":   true,
+	"glow_intensity": 0.8,
+	"glow_strength":  1.0,
+	"glow_bloom":     0.15,
+	# Umbral alto: solo las fuentes muy brillantes (emisivas) generan bloom,
+	# no la calzada tenue. Mantiene el fondo oscuro y limpio.
+	"glow_hdr_threshold": 1.2,
+	# AGX + exposicion baja: el grueso de la escena queda oscuro y solo las
+	# fuentes (faros, semaforo, celular, farolas) se mantienen brillantes. Sin
+	# esto, con tonemap lineal, la suma de muchas luces quema todo a blanco.
+	"tonemap_mode":     4,     # AGX
+	"tonemap_exposure": 0.5,
+	"tonemap_white":    8.0,
 }
 
 @onready var post_process_quad: MeshInstance3D = $XROrigin3D/XRCamera3D/PostProcessQuad
@@ -470,12 +498,22 @@ func _apply_scenario_config(cfg: Dictionary) -> void:
 	# Halos / destello.
 	set_halos_enabled(cfg.get("halos", false))
 
+	# Umbral de brillo a partir del cual una fuente genera halo/destello/streak.
+	# Es por escena: de noche se baja para que todas las luces lo superen.
+	var mat := post_process_quad.get_active_material(0) as ShaderMaterial
+	if mat != null:
+		mat.set_shader_parameter("halo_threshold", cfg.get("halo_threshold", 0.9))
+
 	# Entorno visual (cielo, luz solar).
 	var env_id: String = cfg.get("env", "day")
 	_apply_environment(NIGHT_PARAMS if env_id == "night" else DAY_PARAMS)
 
-	# Libro: visible solo en escenas de dia/consultorio.
-	book_holder.visible = cfg.get("show_book", true)
+	# Libro: visible solo en escenas de dia/consultorio. Ademas se detiene su
+	# _process cuando no se usa, para que no pelee por el uniform book_distance_m
+	# con el celular de la escena nocturna (ambos escriben el mismo uniform).
+	var show_book: bool = cfg.get("show_book", true)
+	book_holder.visible = show_book
+	book_holder.set_process(show_book)
 
 	# PhoneHolder en auto_noche: conectar con PostProcessQuad y camara.
 	if _scenario_node != null:
@@ -512,6 +550,21 @@ func _apply_environment(params: Dictionary) -> void:
 		return
 	env.ambient_light_color  = params.get("ambient_color",  Color(0.6, 0.7, 0.85, 1))
 	env.ambient_light_energy = params.get("ambient_energy", 0.4)
+
+	# Glow/bloom por escena (clave para los halos nocturnos; ver fase_6).
+	env.glow_enabled = params.get("glow_enabled", false)
+	if env.glow_enabled:
+		env.glow_intensity     = params.get("glow_intensity", 1.0)
+		env.glow_strength      = params.get("glow_strength", 1.0)
+		env.glow_bloom         = params.get("glow_bloom", 0.0)
+		env.glow_hdr_threshold = params.get("glow_hdr_threshold", 1.0)
+
+	# Tonemap/exposicion por escena: AGX de noche evita que la suma de luces
+	# de la calle queme la imagen a blanco, manteniendo el fondo oscuro.
+	env.tonemap_mode     = params.get("tonemap_mode", 0)
+	env.tonemap_exposure = params.get("tonemap_exposure", 1.0)
+	env.tonemap_white    = params.get("tonemap_white", 1.0)
+
 	var sky_mat := env.sky.sky_material as ProceduralSkyMaterial
 	if sky_mat == null:
 		return

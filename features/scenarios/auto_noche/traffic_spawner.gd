@@ -28,9 +28,22 @@ extends Node3D
 ## UID del recurso de malla del auto. Si es null se usa una caja placeholder.
 @export var car_mesh: Mesh = null
 
+## Semáforo que regula este tráfico. Si se asigna, los autos frenan en rojo/amarillo
+## y avanzan en verde. Si queda vacío, el tráfico fluye siempre.
+@export var semaforo_path: NodePath
+## Posición X (a lo largo de la calle) de la línea de pare. Los autos vienen de
+## X negativo; frenan al llegar a esta X cuando el semáforo no está en verde.
+@export var stop_line_x: float = -1.5
+## Distancia (m) antes de la línea de pare en la que el auto empieza a frenar.
+@export var brake_distance_m: float = 9.0
+## Separación mínima entre autos (m) para que no se encimen al frenar.
+@export var min_gap_m: float = 6.0
+
 var _path: Path3D
 var _followers: Array[PathFollow3D] = []
 var _path_length: float = 0.0
+var _semaforo: Node = null
+var _stop_progress: float = 0.0
 
 
 func _ready() -> void:
@@ -47,6 +60,21 @@ func _ready() -> void:
 	if _path_length < 0.1:
 		push_warning("TrafficSpawner: la curva del Path3D quedó vacía.")
 		return
+
+	# Semáforo regulador (opcional).
+	if semaforo_path != NodePath():
+		_semaforo = get_node_or_null(semaforo_path)
+	if _semaforo == null:
+		# Fallback: buscar un hermano que exponga is_go() (el Semaforo).
+		var p := get_parent()
+		if p != null:
+			for sib in p.get_children():
+				if sib.has_method("is_go"):
+					_semaforo = sib
+					break
+	# La curva va de x=-20 (progreso 0) a x=+20, ~1 unidad de progreso por metro:
+	# la línea de pare en stop_line_x cae en progreso (stop_line_x + 20).
+	_stop_progress = clampf(stop_line_x + 20.0, 0.0, _path_length)
 
 	for i in range(car_count):
 		_spawn_car(i)
@@ -80,9 +108,10 @@ func _spawn_car(index: int) -> void:
 	var follower := PathFollow3D.new()
 	follower.loop = true
 	follower.rotation_mode = PathFollow3D.ROTATION_ORIENTED
-	# Distribuir uniformemente en la trayectoria.
-	follower.progress_ratio = float(index) / float(car_count)
 	_path.add_child(follower)
+	# Distribuir uniformemente en la trayectoria. progress_ratio solo es valido
+	# una vez que el PathFollow3D ya es hijo de un Path3D dentro del arbol.
+	follower.progress_ratio = float(index) / float(car_count)
 	_followers.append(follower)
 
 	# Cuerpo del auto.
@@ -173,5 +202,31 @@ func _add_headlight(parent: Node3D, index: int, offset: Vector3) -> void:
 func _process(delta: float) -> void:
 	if _path_length < 0.1:
 		return
-	for follower in _followers:
-		follower.progress += speed_mps * delta
+
+	# ¿El semáforo permite avanzar? (solo en verde).
+	var allowed: bool = _semaforo == null or _semaforo.is_go()
+
+	# Ordenar por progreso para encadenar el "car-following": cada auto no puede
+	# pasar al de adelante. Así se forma una cola detrás de la línea de pare.
+	_followers.sort_custom(func(a: PathFollow3D, b: PathFollow3D) -> bool:
+		return a.progress < b.progress)
+
+	var n := _followers.size()
+	for i in range(n):
+		var f := _followers[i]
+		var new_p := f.progress + speed_mps * delta
+
+		# Barrera del semáforo: frenado suave al acercarse a la línea de pare.
+		if not allowed and f.progress <= _stop_progress:
+			var remaining := _stop_progress - f.progress
+			if remaining < brake_distance_m:
+				var brake := clampf(remaining / brake_distance_m, 0.0, 1.0)
+				new_p = f.progress + speed_mps * delta * brake
+			new_p = min(new_p, _stop_progress)
+
+		# Barrera del auto de adelante (el siguiente en progreso): mantener gap.
+		if i < n - 1:
+			new_p = min(new_p, _followers[i + 1].progress - min_gap_m)
+
+		# Nunca retroceder (si una barrera quedó por detrás, el auto simplemente espera).
+		f.progress = max(f.progress, new_p)

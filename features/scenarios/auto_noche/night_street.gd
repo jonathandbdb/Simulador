@@ -62,16 +62,17 @@ extends Node3D
 @export var lamp_sidewalk_reach_m: float = 2.0
 ## Color de la luz. Blanco cálido (alumbrado LED moderno).
 @export var lamp_color: Color = Color(1.0, 0.95, 0.85)
-## Intensidad de la luz que ilumina la calzada.
-@export var lamp_energy: float = 22.0
+## Intensidad de la luz que ilumina la calzada. Moderada: hay ~36 cabezales en
+## la cuadra; con valores altos la suma quema la escena aun con tonemap AGX.
+@export var lamp_energy: float = 6.0
 ## Alcance de la luz.
-@export var lamp_range_m: float = 26.0
+@export var lamp_range_m: float = 14.0
 ## Brillo de la bombilla emisiva (fuente de los halos/destellos del shader).
-@export var lamp_bulb_emission: float = 8.0
-## Dibujar una bombilla emisiva como fuente de los halos. Desactivada por
-## defecto: el modelo ya trae los cabezales y la luz real basta; activarla
-## agrega círculos brillantes que se ven artificiales.
-@export var lamp_show_bulb: bool = false
+@export var lamp_bulb_emission: float = 10.0
+## Dibujar una bombilla emisiva como fuente de los halos. Activada: cada farola
+## es un punto brillante que, al cambiar de lente, genera halo/destello. Sin
+## esto las farolas solo proyectan luz al piso y no disparan el efecto óptico.
+@export var lamp_show_bulb: bool = true
 
 # ----------------------------------------------------------------------
 # Líneas viales (señalización de la calzada)
@@ -134,6 +135,49 @@ func _ready() -> void:
 		_spawn_lamps()
 	if markings_enabled:
 		_spawn_lane_markings()
+	_setup_standalone_preview()
+
+
+## Cuando la escena se corre SOLA en PC (no instanciada bajo main.tscn) no hay
+## cámara XR ni post-proceso. Para poder revisar la geometría/tráfico/luces de
+## forma standalone se agrega una cámara fija en el asiento del conductor y un
+## entorno nocturno básico con glow. Si la escena corre dentro de main (existe el
+## grupo "xr_camera"), no se hace nada y se respeta el rig real.
+func _setup_standalone_preview() -> void:
+	if get_tree().get_first_node_in_group("xr_camera") != null:
+		return  # corriendo dentro de main: el rig real maneja cámara y entorno.
+
+	var cam := Camera3D.new()
+	cam.name = "DebugCamera"
+	cam.position = Vector3(0.0, 0.2, 0.2)
+	cam.rotation_degrees = Vector3(-2.0, 0.0, 0.0)
+	cam.current = true
+	add_child(cam)
+
+	var we := WorldEnvironment.new()
+	we.name = "DebugEnvironment"
+	we.environment = _make_night_environment()
+	add_child(we)
+
+
+## Entorno nocturno básico para el preview standalone (espejo aproximado de
+## NIGHT_PARAMS de main.gd + glow). No se usa cuando corre dentro de main.
+func _make_night_environment() -> Environment:
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.015, 0.015, 0.03)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.08, 0.09, 0.14)
+	env.ambient_light_energy = 0.4
+	env.glow_enabled = true
+	env.glow_intensity = 0.8
+	env.glow_strength = 1.0
+	env.glow_bloom = 0.15
+	env.glow_hdr_threshold = 1.2
+	env.tonemap_mode = Environment.TONE_MAPPER_AGX
+	env.tonemap_exposure = 0.5
+	env.tonemap_white = 8.0
+	return env
 
 
 func _spawn_ground() -> void:
@@ -214,12 +258,14 @@ func _spawn_lamp_at(suffix: String, head_pos: Vector3) -> void:
 	root.position = head_pos
 	add_child(root)
 
-	# Bombilla: esfera emisiva pequeña y blanca. Fuente de los halos/destellos.
+	# Bombilla: esfera emisiva PEQUEÑA. Es solo el punto-fuente que dispara el
+	# halo/destello del shader; si es grande se ve como un disco postizo pegado
+	# sobre el cabezal del modelo (el "círculo superpuesto").
 	if lamp_show_bulb:
 		var bulb := MeshInstance3D.new()
 		var sm := SphereMesh.new()
-		sm.radius = 0.08
-		sm.height = 0.16
+		sm.radius = 0.04
+		sm.height = 0.08
 		bulb.mesh = sm
 		var bulb_mat := StandardMaterial3D.new()
 		bulb_mat.albedo_color = lamp_color
@@ -228,6 +274,8 @@ func _spawn_lamp_at(suffix: String, head_pos: Vector3) -> void:
 		bulb_mat.emission_energy_multiplier = lamp_bulb_emission
 		bulb_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		bulb.material_override = bulb_mat
+		# Apunta hacia abajo, justo en el foco del cabezal.
+		bulb.position = Vector3(0.0, -0.05, 0.0)
 		root.add_child(bulb)
 
 	# Luz real apuntando hacia abajo a la calzada.

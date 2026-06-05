@@ -152,6 +152,14 @@ vec3 box_blur_9tap(vec2 uv, vec2 texel, float radius_px) {
 	return sum / 9.0;
 }
 
+// Brillo de una fuente para decidir si genera halo/destello/streak. Usa el canal
+// maximo (valor HSV), NO luminancia: asi una luz ROJA pura (luminancia ~0.21,
+// pero perceptualmente una fuente brillante) dispara los efectos igual que la
+// verde o la amarilla. Con luminancia, el semaforo en rojo nunca hacia halo.
+float src_brightness(vec3 c) {
+	return max(c.r, max(c.g, c.b));
+}
+
 // Halo realista: dos anillos concentricos + un tercer anillo opcional (nocturno).
 // Cada anillo muestrea 8 direcciones; solo contribuyen pixeles brillantes.
 // Falloff cuadratico simula la caida fisica de la luz con r^2.
@@ -174,8 +182,8 @@ vec3 halo_rings(vec2 uv, vec2 texel, float intensity, float extra_rings) {
 	for (int i = 0; i < 8; i++) {
 		vec3 ci = texture(screen_texture, uv + dirs[i] * texel * radius_inner).rgb;
 		vec3 co = texture(screen_texture, uv + dirs[i] * texel * radius_outer).rgb;
-		float li = dot(ci, vec3(0.2126, 0.7152, 0.0722));
-		float lo = dot(co, vec3(0.2126, 0.7152, 0.0722));
+		float li = src_brightness(ci);
+		float lo = src_brightness(co);
 		if (li > halo_threshold) {
 			float strength = clamp((li - halo_threshold) * inv_above, 0.0, 1.0);
 			halo += clamp(ci, 0.0, 1.0) * (strength * strength) * HALO_INNER_WEIGHT;
@@ -187,7 +195,7 @@ vec3 halo_rings(vec2 uv, vec2 texel, float intensity, float extra_rings) {
 		// Tercer anillo (nocturno, pupila dilatada).
 		if (extra_rings > 0.01) {
 			vec3 ct = texture(screen_texture, uv + dirs[i] * texel * radius_third).rgb;
-			float lt = dot(ct, vec3(0.2126, 0.7152, 0.0722));
+			float lt = src_brightness(ct);
 			if (lt > halo_threshold) {
 				float strength = clamp((lt - halo_threshold) * inv_above, 0.0, 1.0);
 				// Peso mas debil (0.4) y ligeramente azulado (efecto purkinje nocturno).
@@ -210,7 +218,7 @@ vec3 starburst(vec2 uv, vec2 texel, float intensity, float num_rays) {
 	}
 	// Early-out rapido: si el propio pixel no es brillante, no hay rayo.
 	vec3 base_col = texture(screen_texture, uv).rgb;
-	float base_lum = dot(base_col, vec3(0.2126, 0.7152, 0.0722));
+	float base_lum = src_brightness(base_col);
 	if (base_lum < halo_threshold) {
 		return vec3(0.0);
 	}
@@ -230,7 +238,7 @@ vec3 starburst(vec2 uv, vec2 texel, float intensity, float num_rays) {
 			float t = float(s) / float(N_STEPS);
 			float dist_px = t * MAX_RAY_PX;
 			vec3 c = texture(screen_texture, uv + dir * texel * dist_px).rgb;
-			float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+			float lum = src_brightness(c);
 			if (lum > halo_threshold) {
 				float strength = clamp((lum - halo_threshold) * inv_above, 0.0, 1.0);
 				// Falloff lineal con la distancia para efecto de rayo que se desvanece.
@@ -252,7 +260,7 @@ vec3 astigmatism_streak(vec2 uv, vec2 texel, float magnitude_px, float angle) {
 	}
 	// Early-out: si el pixel no es brillante, no aporta streak.
 	vec3 base_col = texture(screen_texture, uv).rgb;
-	float base_lum = dot(base_col, vec3(0.2126, 0.7152, 0.0722));
+	float base_lum = src_brightness(base_col);
 	if (base_lum < halo_threshold) {
 		return vec3(0.0);
 	}
