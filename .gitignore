@@ -6,6 +6,9 @@
 /android/
 *.translation
 # Los archivos .uid de Godot 4 SI se versionan (no ignorar).
+/addons/godot_mcp
+/godot-mcp-pro-v1.14.1
+.mcp.json
 
 # ==========================================================
 # Export / artefactos de build
