@@ -142,7 +142,13 @@ func _update_phone_screen_mask() -> void:
 	var screen_pos: Vector2 = _camera.unproject_position(_phone.global_position)
 	var uv := Vector2(screen_pos.x / viewport_size.x, screen_pos.y / viewport_size.y)
 	_shader_mat.set_shader_parameter("book_screen_uv", uv)
-	_shader_mat.set_shader_parameter("book_screen_radius", 0.12)
+	# Radio de la mascara escalado por 1/distancia: el celular cercano ocupa mucho
+	# mas en pantalla que uno lejano. La mascara debe cubrir TODO el celular para
+	# que ningun pixel suyo dispare halo/starburst (es un target de LECTURA, no una
+	# fuente de luz — igual que la pagina del libro). Calibrado: a 0.35 m -> ~0.34,
+	# a 1 m -> ~0.12. clamp evita extremos.
+	var radius: float = clampf(0.12 / max(_smoothed_distance_m, 0.05), 0.10, 0.42)
+	_shader_mat.set_shader_parameter("book_screen_radius", radius)
 
 
 ## Distancia actual celular→cámara (debug/HUD opcional).

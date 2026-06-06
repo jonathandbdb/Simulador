@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://b5l1l4dlenslab"]
+
+[ext_resource type="Script" path="res://features/scenarios/lens_lab/lens_lab.gd" id="1_lenslab"]
+
+[node name="LensLab" type="Node3D"]
+script = ExtResource("1_lenslab")

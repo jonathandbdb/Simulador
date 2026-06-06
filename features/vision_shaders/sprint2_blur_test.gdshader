@@ -1,21 +1,29 @@
 // sprint2_blur_test.gdshader
 //
-// PoC del Sprint 2 - iteracion 2: blur mas pronunciado + halo con anillos
-// concentricos y tinte cromatico (efecto difractivo de IOL multifocal).
+// Shader unificado de simulacion de visualizacion por IOL (intra-ocular lens).
 //
 // Que hace:
 //   1. Lee SCREEN_TEXTURE y DEPTH_TEXTURE.
 //   2. Convierte depth a distancia real en metros (INV_PROJECTION_MATRIX).
-//   3. Calcula blur por distancia a los 3 planos focales.
-//   4. Aplica box blur 9-tap con radio mayor (12 px) para diferenciacion visible.
-//   5. Halo realista: 2 anillos concentricos (efecto difraccion), falloff
-//      cuadratico, tinte amarillento suave.
-//   6. Bifurca con VIEW_INDEX para Blend asimetrico.
+//   3. Blur dioptrico: error de enfoque (D) respecto al foco mas cercano,
+//      proporcional al error, satura a MAX_DEFOCUS_D. Tolerancia (DoF) viene
+//      de profundidad_foco_m * DOF_M_TO_D.
+//   4. Perdida de contraste: compresion alrededor de gris medio.
+//   5. Halo difractivo con escala ANGULAR REAL: el halo en pantalla escala con
+//      1/distancia_a_la_fuente, lee depth del pixel brillante. halo_extra_rings
+//      modula la dilatacion pupilar (escotopico).
+//   6. Starburst angular: rayos radiales desde la fuente, largo escalado por
+//      1/D_src. Cantidad de rayos parametrizable (0..16).
+//   7. Astigmatismo: streak 1D direccional.
+//   8. Bifurca con VIEW_INDEX para soporte Blend asimetrico por ojo.
 
 shader_type spatial;
 render_mode unshaded, depth_test_disabled, depth_draw_never, blend_mix, cull_disabled;
 
-uniform sampler2D screen_texture : hint_screen_texture, filter_linear, repeat_disable;
+// filter_linear_mipmap: Godot genera mipmaps del backbuffer una vez por frame.
+// Muestrear un nivel de mip borroso (textureLod) en los halos/glare da suavidad
+// "gratis" con MUCHAS menos muestras — clave para que corra en Quest 3 standalone.
+uniform sampler2D screen_texture : hint_screen_texture, filter_linear_mipmap, repeat_disable;
 uniform sampler2D depth_texture  : hint_depth_texture,  filter_nearest, repeat_disable;
 
 // === Modelo de focos por ojo (metros). Foco = 0 => no usado ===
@@ -44,8 +52,11 @@ uniform float halo_intensity_l : hint_range(0.0, 1.0) = 0.0;
 uniform float halo_intensity_r : hint_range(0.0, 1.0) = 0.0;
 uniform float halo_threshold   : hint_range(0.0, 1.0) = 0.75;
 uniform vec3  halo_tint = vec3(1.05, 1.0, 0.78);  // amarillo-blanco realista
-// Numero de anillos extra (0=solo dos anillos base, 1=tercer anillo exterior).
-// Escena nocturna: subir a 1.0+ para halos mas grandes con pupila dilatada.
+// Dilatacion pupilar (0..1). 0 = pupila normal (dia); 1 = escotopica (noche).
+// En la realidad, una pupila dilatada deja pasar mas luz por la zona difractiva
+// de la IOL, agrandando el halo angular y agregando tinte azulado (Purkinje).
+// El nombre del uniform se mantiene como "halo_extra_rings" para compatibilidad
+// con el catalogo, pero su semantica ahora es la dilatacion pupilar.
 uniform float halo_extra_rings_l : hint_range(0.0, 1.0) = 0.0;
 uniform float halo_extra_rings_r : hint_range(0.0, 1.0) = 0.0;
 
@@ -66,8 +77,8 @@ uniform float destello_rayos_r     : hint_range(0.0, 12.0) = 0.0;
 // astig_angle: angulo del eje en radianes (0 = horizontal).
 uniform float astig_enabled_l   : hint_range(0.0, 1.0) = 0.0;
 uniform float astig_enabled_r   : hint_range(0.0, 1.0) = 0.0;
-uniform float astig_magnitude_l : hint_range(0.0, 50.0) = 0.0;
-uniform float astig_magnitude_r : hint_range(0.0, 50.0) = 0.0;
+uniform float astig_magnitude_l : hint_range(0.0, 160.0) = 0.0;
+uniform float astig_magnitude_r : hint_range(0.0, 160.0) = 0.0;
 uniform float astig_angle_l     : hint_range(0.0, 3.14159) = 0.0;
 uniform float astig_angle_r     : hint_range(0.0, 3.14159) = 0.0;
 
@@ -95,12 +106,34 @@ const float BLUR_RADIUS_PX     = 7.0;    // suavizado del kernel — menos artef
 // mejora de forma visible y a partir de ~2 m ya se ve nitido. profundidad_foco_m
 // se convierte a una tolerancia dioptrica con DOF_M_TO_D, y MAX_DEFOCUS_D fija
 // cuanto error de enfoque (en D) corresponde al desenfoque maximo.
-const float MAX_DEFOCUS_D      = 3.0;    // error de enfoque (D) que satura el blur
+// Recalibrado: error de enfoque (D) al que el blur llega al maximo. A 1.5 D, un
+// objeto a distancia de lectura (~0.4-0.5 m => 2-2.5 D) visto con una lente
+// enfocada a lejos (~0.17 D) queda claramente borroso (clinicamente, un monofocal
+// sin gafas no puede leer de cerca). Lejos/intermedio siguen nitidos porque su
+// error es <0.6 D. Antes era 3.0 y dejaba el cercano demasiado legible.
+const float MAX_DEFOCUS_D      = 1.5;    // error de enfoque (D) que satura el blur
 const float DOF_M_TO_D         = 0.5;    // mapea profundidad_foco_m a tolerancia (D)
-const float HALO_INNER_RING_PX = 18.0;   // primer anillo difractivo
-const float HALO_OUTER_RING_PX = 32.0;   // segundo anillo difractivo (1.8x)
-const float HALO_INNER_WEIGHT  = 1.0;
-const float HALO_OUTER_WEIGHT  = 0.4;
+
+// === Halo (rediseño Quest 3: mipmaps + sin depth) ===
+// El radio del halo se basa en la INTENSIDAD de la lente (control clinico) y se
+// modula por el BRILLO de la fuente: una luz mas brillante deslumbra mas y da
+// halo mayor. Como una fuente lejana llega mas tenue (atenuacion), el brillo es
+// un buen proxy de distancia SIN leer depth (que era la mitad del costo).
+// El muestreo lee niveles de MIPMAP borrosos (textureLod), asi pocas muestras
+// dan un halo suave y continuo. ~12 fetches (antes 168).
+const float HALO_MAX_R_PX        = 72.0;  // radio del halo a intensity=1, brillo pleno
+const int   HALO_SAMPLES         = 14;    // muestras en espiral (mips dan la suavidad)
+// Un UNICO anillo difractivo suave (gaussiano), no oscilacion -> sin bandas negras.
+const float HALO_RING_POS        = 0.70;
+const float HALO_RING_WIDTH      = 0.18;
+// Multiplicador del radio cuando la pupila esta dilatada (halo_extra_rings=1.0).
+const float HALO_PUPIL_DILATION_GAIN = 1.7;
+
+// === Starburst (rediseño Quest 3: mipmaps + variacion + sin depth) ===
+// Largo del rayo en px a intensity=1, modulado por brillo de fuente. Rayos con
+// longitud/intensidad/angulo variados por hash (sin simetria mecanica).
+const float STARBURST_MAX_LEN_PX = 110.0;
+const int   STARBURST_STEPS      = 12;   // con mip en los pasos lejanos alcanza
 
 
 float linear_depth_meters(float raw_depth, vec2 uv, mat4 inv_proj) {
@@ -160,133 +193,197 @@ float src_brightness(vec3 c) {
 	return max(c.r, max(c.g, c.b));
 }
 
-// Halo realista: dos anillos concentricos + un tercer anillo opcional (nocturno).
-// Cada anillo muestrea 8 direcciones; solo contribuyen pixeles brillantes.
-// Falloff cuadratico simula la caida fisica de la luz con r^2.
-// extra_rings: 0.0 = solo dos anillos base; 1.0 = tercer anillo exterior visible.
-vec3 halo_rings(vec2 uv, vec2 texel, float intensity, float extra_rings) {
+// True si el uv cae dentro de la mascara del objeto de lectura (libro/celular).
+// Esos objetos son TARGETS DE LECTURA, no fuentes de luz: aunque su pantalla
+// supere el umbral de brillo, NO deben generar halo ni starburst (igual que la
+// pagina del libro del consultorio). Se excluyen como fuente en halo/starburst.
+bool is_reading_target(vec2 uv) {
+	if (book_screen_radius <= 0.0001 || book_distance_m <= 0.0001) {
+		return false;
+	}
+	return distance(uv, book_screen_uv) < book_screen_radius;
+}
+
+// Hash 2D -> [0,1). Usado para rotar el patron de muestreo del halo por pixel
+// (dithering): sin esto, el halo de una fuente queda como N_DIRS*N_RINGS puntos
+// discretos (aspecto "blocky"); con una rotacion aleatoria por pixel esos puntos
+// se reparten en angulos distintos y el halo se ve continuo.
+float hash12(vec2 p) {
+	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+	p3 += dot(p3, p3.yzx + 33.33);
+	return fract((p3.x + p3.y) * p3.z);
+}
+
+// Halo difractivo SUAVE (reescrito para realismo + costo).
+// En vez de anillos*direcciones con coseno oscilante (creaba bandas negras) y
+// jitter por pixel (ruido), muestrea HALO_SAMPLES puntos en una espiral de
+// Fibonacci que cubre el disco del halo de forma uniforme. El perfil radial es
+// continuo: un glow gaussiano central + UN anillo difractivo suave (gaussiano),
+// sin oscilacion -> sin pixeles negros intermedios. ~24 fetches (vs 168 antes).
+//   - el radio del halo escala 1/distancia (angulo fijo)
+//   - pupil_dilation agranda el halo y vira a azulado (Purkinje)
+//   - el halo hereda el color de la fuente (faro rojo -> halo rojo)
+vec3 halo_rings(vec2 uv, vec2 texel, float intensity, float pupil_dilation,
+		mat4 inv_proj) {
 	if (intensity < 0.01) {
 		return vec3(0.0);
 	}
-	vec2 dirs[8] = vec2[8](
-		vec2( 1.0,  0.0), vec2(-1.0,  0.0), vec2( 0.0,  1.0), vec2( 0.0, -1.0),
-		vec2( 0.7,  0.7), vec2(-0.7,  0.7), vec2( 0.7, -0.7), vec2(-0.7, -0.7)
-	);
-	float radius_inner = HALO_INNER_RING_PX * intensity;
-	float radius_outer = HALO_OUTER_RING_PX * intensity;
-	// Tercer anillo: 55 px escalado por intensidad y modulado por extra_rings.
-	float radius_third = 55.0 * intensity;
+	float pupil = clamp(pupil_dilation, 0.0, 1.0);
+	float scale = mix(1.0, HALO_PUPIL_DILATION_GAIN, pupil);
+	float r_max = HALO_MAX_R_PX * intensity * scale;   // radio del halo en px (sin depth)
+	if (r_max < 1.5) {
+		return vec3(0.0);
+	}
 	float inv_above = 1.0 / max(1.0 - halo_threshold, 0.001);
+	vec3 night_tint = mix(halo_tint, vec3(0.85, 0.95, 1.1), pupil * 0.6);
+	float ring_amt = clamp(intensity, 0.0, 1.0);
+
+	// Espiral de Fibonacci con offset rotacional por bloque (continuo, sin ruido
+	// granular). Cada muestra lee un nivel de MIPMAP proporcional al radio: el
+	// borde del halo usa mips mas borrosos -> suave y barato.
+	float ga = 2.39996323;
+	float rot = hash12(floor(uv / (texel * 4.0))) * 6.28318530718;
+	float texel_px = 1.0 / texel.x;   // ancho en px para estimar el nivel de mip
 
 	vec3 halo = vec3(0.0);
-	for (int i = 0; i < 8; i++) {
-		vec3 ci = texture(screen_texture, uv + dirs[i] * texel * radius_inner).rgb;
-		vec3 co = texture(screen_texture, uv + dirs[i] * texel * radius_outer).rgb;
-		float li = src_brightness(ci);
-		float lo = src_brightness(co);
-		if (li > halo_threshold) {
-			float strength = clamp((li - halo_threshold) * inv_above, 0.0, 1.0);
-			halo += clamp(ci, 0.0, 1.0) * (strength * strength) * HALO_INNER_WEIGHT;
+	float wsum = 0.0;
+	for (int s = 0; s < HALO_SAMPLES; s++) {
+		float fs = (float(s) + 0.5) / float(HALO_SAMPLES);
+		float rn = sqrt(fs);                 // posicion radial 0..1 (densa al centro)
+		float ang = float(s) * ga + rot;
+		vec2 dir = vec2(cos(ang), sin(ang));
+		float step_px = rn * r_max;
+		vec2 suv = uv + dir * step_px * texel;
+		if (is_reading_target(suv)) {
+			continue;
 		}
-		if (lo > halo_threshold) {
-			float strength = clamp((lo - halo_threshold) * inv_above, 0.0, 1.0);
-			halo += clamp(co, 0.0, 1.0) * (strength * strength) * HALO_OUTER_WEIGHT;
-		}
-		// Tercer anillo (nocturno, pupila dilatada).
-		if (extra_rings > 0.01) {
-			vec3 ct = texture(screen_texture, uv + dirs[i] * texel * radius_third).rgb;
-			float lt = src_brightness(ct);
-			if (lt > halo_threshold) {
-				float strength = clamp((lt - halo_threshold) * inv_above, 0.0, 1.0);
-				// Peso mas debil (0.4) y ligeramente azulado (efecto purkinje nocturno).
-				halo += clamp(ct, 0.0, 1.0) * (strength * strength) * 0.4 * extra_rings
-					* vec3(0.85, 0.95, 1.1);
-			}
-		}
+		// Nivel de mip: crece con el radio (muestras lejanas mas borrosas).
+		float lod = clamp(log2(max(step_px, 1.0)) - 1.0, 0.0, 5.0);
+		vec3 c = textureLod(screen_texture, suv, lod).rgb;
+		float lum = src_brightness(c);
+		float excess = max(lum - halo_threshold, 0.0) * inv_above;
+		// Perfil radial CONTINUO: glow gaussiano + un unico anillo suave (gaussiano).
+		float glow = exp(-rn * rn * 3.0);
+		float d_ring = (rn - HALO_RING_POS) / HALO_RING_WIDTH;
+		float ring = exp(-d_ring * d_ring);
+		float profile = mix(glow, max(glow * 0.55, ring), ring_amt);
+		halo += clamp(c, 0.0, 1.0) * (excess * profile);
+		wsum += profile;
 	}
-	// Promediar y aplicar tinte cromatico del halo.
-	return (halo / 8.0) * intensity * halo_tint;
+	if (wsum < 0.001) {
+		return vec3(0.0);
+	}
+	vec3 halo_col = halo / wsum;         // promedio ponderado -> suave (sin granos)
+	float mx = max(halo_col.r, max(halo_col.g, halo_col.b));
+	float mn = min(halo_col.r, min(halo_col.g, halo_col.b));
+	float sat = (mx - mn) / max(mx, 0.001);
+	vec3 tint = mix(night_tint, vec3(1.0), clamp(sat, 0.0, 1.0));
+	return halo_col * intensity * tint * 1.6;   // ganancia: visible tras promediar
 }
 
-// Starburst: rayos radiales desde fuentes brillantes (sutura de IOL difractiva).
-// Muestrea N_STEPS radios a lo largo de 'num_rays' direcciones igualmente
-// espaciadas. Solo contribuyen pixeles sobre el umbral.
-// Costo acotado: early-out si la luminancia del pixel base es baja.
-vec3 starburst(vec2 uv, vec2 texel, float intensity, float num_rays) {
+// Starburst angular (reescrito). Los rayos se EXTIENDEN desde la fuente hacia el
+// fondo oscuro. La version anterior solo corria sobre pixeles ya brillantes y
+// acumulaba muestras tambien brillantes, por lo que nunca dibujaba rayos hacia
+// la oscuridad (efecto invisible). Ahora, igual que halo_rings, cada pixel mira
+// a lo largo de N direcciones radiales buscando una fuente; si la encuentra
+// dentro del largo angular del rayo (escala 1/D_src), este pixel cae sobre un
+// rayo de esa fuente y se ilumina, con atenuacion hacia la punta. El resultado
+// es aditivo (sin normalizar) para conservar el degrade del rayo.
+vec3 starburst(vec2 uv, vec2 texel, float intensity, float num_rays, mat4 inv_proj) {
 	if (intensity < 0.01 || num_rays < 1.0) {
 		return vec3(0.0);
 	}
-	// Early-out rapido: si el propio pixel no es brillante, no hay rayo.
-	vec3 base_col = texture(screen_texture, uv).rgb;
-	float base_lum = src_brightness(base_col);
-	if (base_lum < halo_threshold) {
-		return vec3(0.0);
-	}
-
-	const int N_STEPS = 6;
-	const float MAX_RAY_PX = 40.0;
 	float inv_above = 1.0 / max(1.0 - halo_threshold, 0.001);
 	float pi2 = 6.28318530718;
-	int iray = int(clamp(num_rays, 1.0, 12.0));
+	int iray = int(clamp(num_rays, 1.0, 16.0));
 
+	// Gather a lo largo de iray direcciones radiales. Cada rayo: longitud, brillo y
+	// jitter angular variados por hash -> sin simetria mecanica. El largo del rayo
+	// se basa en intensity (sin depth) y se modula por el brillo de la fuente. Los
+	// pasos lejanos leen mipmaps borrosos (textureLod) para un trazo suave y barato.
 	vec3 accum = vec3(0.0);
-	float total_w = 0.0;
 	for (int r = 0; r < iray; r++) {
-		float angle = (float(r) / float(iray)) * pi2;
+		float h = hash12(vec2(float(r) * 12.9898, 7.233));
+		float h2 = hash12(vec2(float(r) * 3.17, 19.1));
+		float angle = (float(r) + (h - 0.5) * 0.7) / float(iray) * pi2;
 		vec2 dir = vec2(cos(angle), sin(angle));
-		for (int s = 1; s <= N_STEPS; s++) {
-			float t = float(s) / float(N_STEPS);
-			float dist_px = t * MAX_RAY_PX;
-			vec3 c = texture(screen_texture, uv + dir * texel * dist_px).rgb;
+		float ray_len_px = STARBURST_MAX_LEN_PX * intensity * mix(0.5, 1.0, h);
+		float ray_gain = mix(0.45, 1.0, h2);
+		if (ray_len_px < 1.0) {
+			continue;
+		}
+		for (int s = 1; s <= STARBURST_STEPS; s++) {
+			float t = float(s) / float(STARBURST_STEPS);
+			float step_px = t * ray_len_px;
+			vec2 suv = uv + dir * texel * step_px;
+			if (is_reading_target(suv)) {
+				continue;
+			}
+			// Mip BAJO: el rayo debe ser fino, un mip alto lo engorda. Solo los
+			// pasos muy lejanos usan un nivel leve para tapar huecos del muestreo.
+			float lod = clamp(log2(max(step_px, 1.0)) - 4.0, 0.0, 1.5);
+			vec3 c = textureLod(screen_texture, suv, lod).rgb;
 			float lum = src_brightness(c);
 			if (lum > halo_threshold) {
 				float strength = clamp((lum - halo_threshold) * inv_above, 0.0, 1.0);
-				// Falloff lineal con la distancia para efecto de rayo que se desvanece.
-				float w = strength * (1.0 - t);
-				accum += clamp(c, 0.0, 1.0) * w;
-				total_w += w;
+				float core = strength * strength;           // solo el nucleo -> rayo fino
+				float falloff = pow(1.0 - t, 1.5);           // degrade suave hacia la punta
+				accum += clamp(c, 0.0, 1.0) * (core * falloff * ray_gain);
 			}
 		}
 	}
-	if (total_w < 0.001) return vec3(0.0);
-	return (accum / total_w) * intensity;
+	return clamp(accum, vec3(0.0), vec3(2.0)) * intensity;
 }
 
-// Astigmatismo: streak 1D direccional de puntos brillantes.
-// Blur lineal a lo largo del eje 'angle' (radianes), solo sobre umbral.
+// Astigmatismo: blur direccional 1D CONTINUO (convolucion gaussiana a lo largo
+// del eje). La version anterior SUMABA el color de la fuente en posiciones
+// discretas, por lo que se veian copias de la fuente (circulitos). Aca hacemos
+// un promedio ponderado gaussiano del "exceso de luz" sobre el eje: la fuente se
+// ESPARCE en un trazo suave que se desvanece en los extremos, sin repeticiones.
 vec3 astigmatism_streak(vec2 uv, vec2 texel, float magnitude_px, float angle) {
 	if (magnitude_px < 0.5) {
 		return vec3(0.0);
 	}
-	// Early-out: si el pixel no es brillante, no aporta streak.
-	vec3 base_col = texture(screen_texture, uv).rgb;
-	float base_lum = src_brightness(base_col);
-	if (base_lum < halo_threshold) {
-		return vec3(0.0);
-	}
-
 	vec2 axis = vec2(cos(angle), sin(angle));
-	const int N = 8;
+	// 18 muestras con mip LEVE: el mip alto emborrona la fuente y le quita brillo
+	// (el streak se apaga); un mip bajo solo tapa los huecos del muestreo sin matar
+	// la fuente. Gaussiana -> trazo continuo sin escalones ni circulitos.
+	const int N = 18;
+	const float SIGMA = 0.45;
 	float inv_above = 1.0 / max(1.0 - halo_threshold, 0.001);
+	float inv2s2 = 1.0 / (2.0 * SIGMA * SIGMA);
+	float lod = clamp(log2(max(magnitude_px / float(N), 1.0)) - 1.0, 0.0, 1.5);
 
 	vec3 streak = vec3(0.0);
-	float total_w = 0.0;
+	float wsum = 0.0;
 	for (int i = -N; i <= N; i++) {
-		if (i == 0) continue;
 		float t = float(i) / float(N);
-		float dist_px = t * magnitude_px;
-		vec3 c = texture(screen_texture, uv + axis * texel * dist_px).rgb;
-		float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
-		if (lum > halo_threshold) {
-			float strength = clamp((lum - halo_threshold) * inv_above, 0.0, 1.0);
-			float w = strength * (1.0 - abs(t));
-			streak += clamp(c, 0.0, 1.0) * w;
-			total_w += w;
-		}
+		float gw = exp(-t * t * inv2s2);
+		vec2 suv = uv + axis * t * magnitude_px * texel;
+		vec3 c = textureLod(screen_texture, suv, lod).rgb;
+		float lum = src_brightness(c);
+		float excess = max(lum - halo_threshold, 0.0) * inv_above;
+		streak += clamp(c, 0.0, 1.0) * (excess * gw);
+		wsum += gw;
 	}
-	if (total_w < 0.001) return vec3(0.0);
-	// Intensidad fija 0.8: el streak no satura la imagen pero es claramente visible.
-	return (streak / total_w) * 0.8;
+	return clamp(streak / max(wsum, 0.001), vec3(0.0), vec3(2.0)) * 2.2;
+}
+
+// Factor (0..1) para suprimir el glare sobre SUPERFICIES brillantes extensas
+// (calzada/cebra iluminada por las farolas): solo las FUENTES de luz puntuales
+// (faros, semaforo, farolas) deben deslumbrar, no una superficie reflectante.
+// Truco con mipmaps (barato, 1 fetch por pixel): una fuente puntual es brillante
+// en el detalle pero su entorno AMPLIO (mip alto) es oscuro; una superficie
+// iluminada es brillante tambien en el area amplia. Si el area amplia alrededor
+// del pixel es brillante y uniforme, esta sobre una superficie -> suprimir.
+float surface_factor(vec2 uv) {
+	// Promediamos DOS niveles: mip 5 (area amplia ~32px, capta la cebra rayada
+	// completa como zona brillante) y mip 3 (mas local). Tomamos el mayor: si
+	// cualquiera de las dos escalas ve una zona brillante uniforme, es superficie.
+	float a5 = src_brightness(textureLod(screen_texture, uv, 5.0).rgb);
+	float a3 = src_brightness(textureLod(screen_texture, uv, 3.0).rgb);
+	float area = max(a5, a3 * 0.85);
+	return 1.0 - smoothstep(0.28, 0.50, area);
 }
 
 void fragment() {
@@ -343,10 +440,15 @@ void fragment() {
 	vec3 blurred = box_blur_9tap(uv, texel, BLUR_RADIUS_PX * blur_amount);
 	vec3 color = mix(base, blurred, blur_amount);
 
-	// Perdida de contraste: comprime el rango alrededor del gris medio. Se aplica
-	// a la imagen retiniana (base + blur) ANTES del halo, porque el halo es luz
-	// dispersada adicional que se suma encima.
-	color = (color - 0.5) * (1.0 - contrast_amount) + 0.5;
+	// Perdida de contraste: comprime el rango de luminancia. Se aplica a la imagen
+	// retiniana (base + blur) ANTES del halo, porque el halo es luz dispersada
+	// adicional que se suma encima. El pivote es BAJO (0.22), no el gris medio:
+	// asi reducir el contraste NO levanta los negros hasta gris (de noche el cielo
+	// negro debe seguir oscuro). Clinicamente la perdida de sensibilidad al
+	// contraste lava sobre todo las zonas de bajo contraste, no agrega un velo gris
+	// plano sobre el negro puro.
+	const float CONTRAST_PIVOT = 0.22;
+	color = (color - CONTRAST_PIVOT) * (1.0 - contrast_amount) + CONTRAST_PIVOT;
 
 	// El halo simula la dispersion de luz de las IOL multifocales alrededor de
 	// fuentes de luz REALES (lamparas, faros). Con tonemapping AGX la pagina del
@@ -356,15 +458,18 @@ void fragment() {
 	// producen el halo. Asi se evita el "blanco quemado" al alejar el libro y el
 	// efecto sigue siendo clinicamente correcto: el halo depende del brillo de la
 	// fuente, no de la distancia.
-	color += halo_rings(uv, texel, halo_amount, halo_extra);
+	// Supresion de superficies extensas: el glare solo nace de fuentes puntuales,
+	// no de la calzada/cebra iluminada (que de noche satura a casi blanco).
+	float surf = surface_factor(uv);
+	color += halo_rings(uv, texel, halo_amount, halo_extra, INV_PROJECTION_MATRIX) * surf;
 
 	// Destello/starburst: rayos radiales desde fuentes muy brillantes.
 	// Solo activo cuando destello_intensity > 0 (escena nocturna con IOL difractiva).
-	color += starburst(uv, texel, destello_int, destello_n);
+	color += starburst(uv, texel, destello_int, destello_n, INV_PROJECTION_MATRIX) * surf;
 
 	// Astigmatismo: streak 1D en el eje configurado por ojo.
 	if (astig_on > 0.5) {
-		color += astigmatism_streak(uv, texel, astig_mag, astig_ang);
+		color += astigmatism_streak(uv, texel, astig_mag, astig_ang) * surf;
 	}
 
 	ALBEDO = color;

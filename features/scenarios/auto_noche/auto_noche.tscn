@@ -62,7 +62,7 @@ albedo_color = Color(0.02, 0.02, 0.03, 1)
 roughness = 0.2
 emission_enabled = true
 emission = Color(0.55, 0.78, 1, 1)
-emission_energy_multiplier = 3.0
+emission_energy_multiplier = 0.8
 
 [sub_resource type="BoxMesh" id="BoxMesh_2cawe"]
 size = Vector3(0.075, 0.15, 0.008)
@@ -129,9 +129,9 @@ mesh = SubResource("BoxMesh_85kgo")
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -0.28, 0.37, 0)
 light_color = Color(1, 0.05, 0, 1)
 light_energy = 0.0
-spot_range = 7.0
-spot_angle = 38.0
-spot_angle_attenuation = 0.7
+spot_range = 1.8
+spot_angle = 30.0
+spot_angle_attenuation = 0.9
 
 [node name="GloboAmarillo" type="MeshInstance3D" parent="Semaforo/Head" unique_id=1258135157]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.2, 0, 0)
@@ -147,9 +147,9 @@ mesh = SubResource("BoxMesh_85kgo")
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -0.28, 0, 0)
 light_color = Color(1, 0.78, 0, 1)
 light_energy = 0.0
-spot_range = 7.0
-spot_angle = 38.0
-spot_angle_attenuation = 0.7
+spot_range = 1.8
+spot_angle = 30.0
+spot_angle_attenuation = 0.9
 
 [node name="GloboVerde" type="MeshInstance3D" parent="Semaforo/Head" unique_id=690773091]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.2, -0.37, 0)
@@ -165,16 +165,17 @@ mesh = SubResource("BoxMesh_85kgo")
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -0.28, -0.37, 0)
 light_color = Color(0.1, 1, 0.1, 1)
 light_energy = 0.0
-spot_range = 7.0
-spot_angle = 38.0
-spot_angle_attenuation = 0.7
+spot_range = 1.8
+spot_angle = 30.0
+spot_angle_attenuation = 0.9
 
 [node name="TrafficPath" type="Path3D" parent="." unique_id=1770706051]
 
 [node name="TrafficSpawner" type="Node3D" parent="." unique_id=656258937]
 script = ExtResource("1_traffic")
 traffic_path = NodePath("../TrafficPath")
-car_count = 3
+car_count = 2
+oncoming_count = 1
 headlight_energy = 10.0
 headlight_range = 20.0
 

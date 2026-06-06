@@ -93,11 +93,17 @@ extends Node3D
 ## Posición X (largo de la calle) donde se pinta la senda peatonal.
 @export var crosswalk_x_m: float = 72.0
 ## Color de las líneas centrales (doble línea amarilla).
-@export var center_line_color: Color = Color(0.7, 0.58, 0.1)
-## Color de las líneas de borde y la senda peatonal (blanco).
-@export var side_line_color: Color = Color(0.85, 0.85, 0.85)
-## Brillo emisivo de la pintura para que se distinga de noche.
-@export var line_emission: float = 0.4
+@export var center_line_color: Color = Color(0.5, 0.42, 0.08)
+## Color de las líneas de borde y la senda peatonal. Gris medio (no blanco): de
+## noche la pintura reflejada por las farolas no debe saturar ni competir con las
+## fuentes de luz reales (si no, genera halos/streaks falsos en la calzada).
+@export var side_line_color: Color = Color(0.45, 0.45, 0.45)
+## Brillo emisivo de la pintura. BAJO a propósito: la pintura vial NO es una
+## fuente de luz, así que debe quedar por debajo del umbral de halo del shader
+## (~0.55 de noche). Con valores altos las líneas cercanas generaban halos y
+## starbursts falsos (como si fueran faros). Si se necesitara que se vean más,
+## subir la luz de las farolas, no esto.
+@export var line_emission: float = 0.12
 
 const ROAD_SCENE_PATH := "res://assets/scenarios/auto_noche/road/model.glb"
 
@@ -364,9 +370,12 @@ func _add_crosswalk(parent: Node3D, xc: float, yc: float, zc: float) -> void:
 
 func _line_material(color: Color) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
+	# UNSHADED: la pintura vial NO recibe iluminacion dinamica. Se ve con su color
+	# constante (mate), pero NUNCA refleja la luz de las farolas/faros ni produce
+	# highlights brillantes en angulo rasante. Asi no dispara halos/destellos/
+	# streaks falsos en la calzada (pedido explicito: la luz NO debe reflejarse en
+	# las lineas de la calle). El color es gris/amarillo OSCURO para quedar muy por
+	# debajo del umbral de glare del shader de lentes.
 	mat.albedo_color = color
-	mat.emission_enabled = true
-	mat.emission = color
-	mat.emission_energy_multiplier = line_emission
-	mat.roughness = 0.6
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	return mat

@@ -37,6 +37,7 @@ const DEFAULT_PORT := 9090
 @onready var reset_button: Button = $Margin/HBox/ControlPanel/VBox/ParamsHeader/ResetButton
 @onready var state_label: Label = $Margin/HBox/ControlPanel/VBox/StateLabel
 @onready var scenario_list: HBoxContainer = $Margin/HBox/ControlPanel/VBox/ScenarioList
+@onready var control_vbox: VBoxContainer = $Margin/HBox/ControlPanel/VBox
 
 var _peer := WebSocketPeer.new()
 # Texturas separadas por ojo (el visor manda streams independientes en
@@ -45,6 +46,14 @@ var _texture_left: ImageTexture
 var _texture_right: ImageTexture
 var _frames_received: int = 0
 var _bytes_received: int = 0
+
+# Astigmatismo (canal independiente del catalogo de lentes). Controles propios
+# en la tablet; se envia con el comando "set_astigmatism".
+var _astig_enabled_check: CheckButton
+var _astig_mag_slider: HSlider
+var _astig_mag_label: Label
+var _astig_angle_slider: HSlider
+var _astig_angle_label: Label
 var _connecting: bool = false
 var _catalog_lenses: Array = []
 var _lenses_by_id: Dictionary = {}
@@ -101,6 +110,9 @@ func _ready() -> void:
 	refresh_timer.autostart = true
 	refresh_timer.timeout.connect(_refresh_discovered)
 	add_child(refresh_timer)
+
+	# Controles de astigmatismo (canal aparte del catalogo).
+	_build_astigmatism_controls()
 
 
 func _on_visor_discovered(_host: String, _payload: Dictionary) -> void:
@@ -330,36 +342,97 @@ func _build_params_editor(lens_id: String) -> void:
 		params_list.add_child(lbl)
 
 
-# Nombres clinicos y unidades para mostrar en los sliders (no afectan el
-# protocolo: las claves siguen siendo las del catalogo/shader).
-const PARAM_LABELS := {
-	"foco_lejos_m":       "Foco lejano",
-	"foco_intermedio_m":  "Foco intermedio",
-	"foco_cerca_m":       "Foco cercano",
-	"profundidad_foco_m": "Profundidad de foco",
-	"desenfoque_max":     "Desenfoque maximo",
-	"halo_intensity":     "Halos",
-	"contrast_loss":      "Perdida de contraste",
+# Metadata clinica por parametro:
+#   label  -> texto principal del slider
+#   hint   -> descripcion corta del efecto (tooltip debajo del slider)
+#   unit   -> sufijo de la unidad ("m", "rayos", "%", "")
+#   fmt    -> formato del numero (default "%.2f")
+# Las claves siguen siendo las del catalogo/shader (no afecta protocolo).
+const PARAM_META := {
+	"foco_lejos_m": {
+		"label": "Foco lejano",
+		"hint": "Distancia donde el paciente ve nitido a lejos. 6 m ≈ infinito optico. 0 = desactivado.",
+		"unit": "m", "fmt": "%.2f",
+	},
+	"foco_intermedio_m": {
+		"label": "Foco intermedio",
+		"hint": "Distancia del segundo plano nitido (PC, tablero del auto). 0 = sin foco intermedio.",
+		"unit": "m", "fmt": "%.2f",
+	},
+	"foco_cerca_m": {
+		"label": "Foco cercano",
+		"hint": "Distancia de lectura nitida (libro, celular). Tipico 35-45 cm. 0 = sin foco cercano.",
+		"unit": "m", "fmt": "%.2f",
+	},
+	"profundidad_foco_m": {
+		"label": "Profundidad de foco",
+		"hint": "Ancho de la zona nitida alrededor de cada foco. Bajo = pico estrecho (trifocal). Alto = plateau ancho (EDOF).",
+		"unit": "m", "fmt": "%.2f",
+	},
+	"desenfoque_max": {
+		"label": "Desenfoque maximo",
+		"hint": "Cuanto se borronea fuera de toda zona de foco (0 = nunca borroso, 1 = maximo).",
+		"unit": "", "fmt": "%.2f",
+	},
+	"halo_intensity": {
+		"label": "Intensidad de halos",
+		"hint": "Tamano e intensidad del halo difractivo alrededor de fuentes brillantes. Trifocal alto, monofocal casi nulo.",
+		"unit": "", "fmt": "%.2f",
+	},
+	"halo_extra_rings": {
+		"label": "Dilatacion pupilar (noche)",
+		"hint": "Pupila mesopica/escotopica. Agranda el halo y agrega tinte azulado (efecto Purkinje). Subir en escena nocturna.",
+		"unit": "", "fmt": "%.2f",
+	},
+	"contrast_loss": {
+		"label": "Perdida de contraste",
+		"hint": "Reduccion de sensibilidad al contraste (imagen mas lavada). Trifocal pierde mas que EDOF, EDOF mas que monofocal.",
+		"unit": "", "fmt": "%.2f",
+	},
+	"destello_intensity": {
+		"label": "Intensidad de starburst",
+		"hint": "Rayos radiales desde fuentes brillantes (disfotopsia difractiva). 0 = sin destello.",
+		"unit": "", "fmt": "%.2f",
+	},
+	"destello_rayos": {
+		"label": "Cantidad de rayos",
+		"hint": "Cantidad de spokes del starburst. Pacientes con trifocal reportan 8-12 rayos visibles.",
+		"unit": "rayos", "fmt": "%.0f",
+	},
 }
 
-# Orden clinico de presentacion (los focos primero, luego el resto).
+# Orden clinico de presentacion: primero los focos, despues blur, despues
+# disfotopsias (halo, starburst, contraste). Parametros del catalogo que no
+# esten aca se agregan al final preservando el orden del catalogo.
 const PARAM_ORDER := [
 	"foco_lejos_m", "foco_intermedio_m", "foco_cerca_m",
-	"profundidad_foco_m", "desenfoque_max", "halo_intensity", "contrast_loss",
+	"profundidad_foco_m", "desenfoque_max",
+	"halo_intensity", "halo_extra_rings",
+	"destello_intensity", "destello_rayos",
+	"contrast_loss",
 ]
 
 
 func _param_label(param_name: String) -> String:
-	return PARAM_LABELS.get(param_name, param_name)
+	var meta: Dictionary = PARAM_META.get(param_name, {})
+	return meta.get("label", param_name)
+
+
+func _param_hint(param_name: String) -> String:
+	var meta: Dictionary = PARAM_META.get(param_name, {})
+	return meta.get("hint", "")
 
 
 func _format_param_value(param_name: String, value: float) -> String:
-	# Distancias en metros: mostrar unidad; 0 = foco desactivado.
-	if String(param_name).ends_with("_m"):
-		if value <= 0.001:
-			return "off"
-		return "%.2f m" % value
-	return "%.2f" % value
+	var meta: Dictionary = PARAM_META.get(param_name, {})
+	# Distancias en metros: 0 = foco desactivado.
+	if meta.get("unit", "") == "m" and value <= 0.001:
+		return "off"
+	var fmt: String = meta.get("fmt", "%.2f")
+	var unit: String = meta.get("unit", "")
+	if unit == "":
+		return fmt % value
+	return ("%s %s" % [fmt % value, unit]).strip_edges()
 
 
 func _add_param_row(param_name: String, min_val: float, max_val: float, value: float) -> void:
@@ -372,6 +445,10 @@ func _add_param_row(param_name: String, min_val: float, max_val: float, value: f
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_lbl.add_theme_font_size_override("font_size", 13)
 	name_lbl.add_theme_color_override("font_color", Color(0.78, 0.82, 0.9))
+	# Tooltip clinico al mantener pulsado o pasar el cursor.
+	var hint := _param_hint(param_name)
+	if hint != "":
+		name_lbl.tooltip_text = hint
 	header.add_child(name_lbl)
 
 	var value_lbl := Label.new()
@@ -384,11 +461,28 @@ func _add_param_row(param_name: String, min_val: float, max_val: float, value: f
 	var slider := HSlider.new()
 	slider.min_value = min_val
 	slider.max_value = max_val
-	slider.step = max((max_val - min_val) / 200.0, 0.001)
+	# Para `destello_rayos` queremos pasos enteros; para el resto, ~200 pasos.
+	if PARAM_META.get(param_name, {}).get("fmt", "") == "%.0f":
+		slider.step = 1.0
+	else:
+		slider.step = max((max_val - min_val) / 200.0, 0.001)
 	slider.value = value
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if hint != "":
+		slider.tooltip_text = hint
 	slider.value_changed.connect(_on_param_slider_changed.bind(param_name))
 	row.add_child(slider)
+
+	# Sublabel descriptivo (tamano chico, color tenue) para que el doctor no
+	# tenga que esperar el tooltip: el sentido clinico del parametro queda a
+	# la vista debajo del slider.
+	if hint != "":
+		var hint_lbl := Label.new()
+		hint_lbl.text = hint
+		hint_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		hint_lbl.add_theme_font_size_override("font_size", 11)
+		hint_lbl.add_theme_color_override("font_color", Color(0.55, 0.6, 0.7))
+		row.add_child(hint_lbl)
 
 	params_list.add_child(row)
 	_param_sliders[param_name] = slider
@@ -520,6 +614,113 @@ func _update_state_label() -> void:
 	else:
 		right_eye_pane.visible = false
 		left_eye_label.text = "Ambos ojos — %s" % left_id
+
+
+# ====================================================================
+# Astigmatismo (set_astigmatism) — canal independiente del catalogo
+# ====================================================================
+## Construye la seccion de astigmatismo al final del panel de control. Es un
+## defecto refractivo (no una propiedad de la IOL), por eso vive aparte del
+## catalogo de lentes. Aplica al ojo elegido en el selector "Aplicar a:".
+func _build_astigmatism_controls() -> void:
+	if control_vbox == null:
+		return
+
+	var sep := HSeparator.new()
+	control_vbox.add_child(sep)
+
+	var title := Label.new()
+	title.text = "Astigmatismo"
+	title.add_theme_font_size_override("font_size", 15)
+	title.add_theme_color_override("font_color", Color(0.82, 0.86, 0.95))
+	control_vbox.add_child(title)
+
+	# Activar / desactivar.
+	_astig_enabled_check = CheckButton.new()
+	_astig_enabled_check.text = "Activar"
+	_astig_enabled_check.tooltip_text = "Estira las fuentes brillantes en una linea (streak) sobre el eje elegido. Simula astigmatismo no corregido."
+	_astig_enabled_check.toggled.connect(func(_p: bool) -> void: _send_astigmatism())
+	control_vbox.add_child(_astig_enabled_check)
+
+	# Magnitud (largo del streak en px).
+	var mag_header := HBoxContainer.new()
+	var mag_name := Label.new()
+	mag_name.text = "Magnitud"
+	mag_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mag_name.add_theme_font_size_override("font_size", 13)
+	mag_name.add_theme_color_override("font_color", Color(0.78, 0.82, 0.9))
+	mag_header.add_child(mag_name)
+	_astig_mag_label = Label.new()
+	_astig_mag_label.add_theme_font_size_override("font_size", 13)
+	_astig_mag_label.add_theme_color_override("font_color", Color(0.6, 0.85, 0.7))
+	mag_header.add_child(_astig_mag_label)
+	control_vbox.add_child(mag_header)
+
+	_astig_mag_slider = HSlider.new()
+	_astig_mag_slider.min_value = 0.0
+	_astig_mag_slider.max_value = 50.0
+	_astig_mag_slider.step = 1.0
+	_astig_mag_slider.value = 25.0
+	_astig_mag_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_astig_mag_slider.value_changed.connect(func(_v: float) -> void: _on_astig_changed())
+	control_vbox.add_child(_astig_mag_slider)
+
+	# Angulo del eje (grados; se convierte a radianes al enviar).
+	var ang_header := HBoxContainer.new()
+	var ang_name := Label.new()
+	ang_name.text = "Eje"
+	ang_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ang_name.add_theme_font_size_override("font_size", 13)
+	ang_name.add_theme_color_override("font_color", Color(0.78, 0.82, 0.9))
+	ang_header.add_child(ang_name)
+	_astig_angle_label = Label.new()
+	_astig_angle_label.add_theme_font_size_override("font_size", 13)
+	_astig_angle_label.add_theme_color_override("font_color", Color(0.6, 0.85, 0.7))
+	ang_header.add_child(_astig_angle_label)
+	control_vbox.add_child(ang_header)
+
+	_astig_angle_slider = HSlider.new()
+	_astig_angle_slider.min_value = 0.0
+	_astig_angle_slider.max_value = 180.0
+	_astig_angle_slider.step = 1.0
+	_astig_angle_slider.value = 0.0
+	_astig_angle_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_astig_angle_slider.value_changed.connect(func(_v: float) -> void: _on_astig_changed())
+	control_vbox.add_child(_astig_angle_slider)
+
+	_update_astig_labels()
+
+
+func _on_astig_changed() -> void:
+	_update_astig_labels()
+	# Solo reenviar en vivo si esta activo (mover sliders apagado no hace nada).
+	if _astig_enabled_check != null and _astig_enabled_check.button_pressed:
+		_send_astigmatism()
+
+
+func _update_astig_labels() -> void:
+	if _astig_mag_label != null and _astig_mag_slider != null:
+		_astig_mag_label.text = "%.0f px" % _astig_mag_slider.value
+	if _astig_angle_label != null and _astig_angle_slider != null:
+		_astig_angle_label.text = "%.0f°" % _astig_angle_slider.value
+
+
+func _send_astigmatism() -> void:
+	if _peer.get_ready_state() != WebSocketPeer.STATE_OPEN:
+		_update_status("no hay conexion para enviar comando")
+		return
+	if _astig_enabled_check == null:
+		return
+	var eye_map := {0: "both", 1: "left", 2: "right"}
+	var eye: String = eye_map.get(eye_option.selected, "both")
+	var cmd := {
+		"cmd": "set_astigmatism",
+		"eye": eye,
+		"enabled": _astig_enabled_check.button_pressed,
+		"magnitude": _astig_mag_slider.value,
+		"angle": deg_to_rad(_astig_angle_slider.value),
+	}
+	_peer.send_text(JSON.stringify(cmd))
 
 
 func _update_status(text: String) -> void:

@@ -1,122 +1,107 @@
 extends Node3D
 ## TrafficSpawner — auto_noche
 ##
-## Genera 5 autos que pasan de izquierda a derecha (desde el punto de vista del
-## paciente sentado en el asiento del conductor). Cada auto lleva dos SpotLight3D
-## como faros delanteros. La velocidad simula ~60 km/h en la escala de Godot
-## (1 unidad ≈ 1 metro).
+## Enfoque centrado en la EXPERIENCIA DEL PACIENTE: pocos autos, que aparecen con
+## una frecuencia ALEATORIA (no un flujo constante). Cada auto cruza una sola vez
+## el campo de visión —entra lejos por un lado, pasa cerca al frente del paciente
+## y se aleja por el otro— y al salir se oculta y espera un tiempo random antes de
+## volver a entrar. Asi el paciente ve cómo el halo/destello de las luces (faros,
+## traseras) cambia con la distancia segun la lente activa, sin saturar la escena.
 ##
-## Los autos se distribuyen uniformemente en la trayectoria (Path3D) y se
-## envuelven en loop continuo para que el efecto de tráfico no se interrumpa.
+## Hay dos carriles:
+##   - principal: autos que se ALEJAN (el paciente ve sus luces traseras rojas).
+##   - contrario: autos que vienen DE FRENTE (faros blancos que deslumbran).
+## El semáforo es solo una fuente de luz decorativa; no detiene el tráfico (con
+## tan pocos autos, frenarlos dejaría la escena vacía).
 
-## Nodo Path3D que define la trayectoria. Debe estar configurado en la escena
-## padre (auto_noche.tscn) con una curva que va de izquierda a derecha, a unos
-## 3.5 m del paciente y a unos -0.5 m de altura (carretera).
 @export var traffic_path: NodePath
 
-## Velocidad de los autos en m/s. 60 km/h ≈ 16.67 m/s.
-@export var speed_mps: float = 16.67
+## Velocidad base de los autos en m/s (~43 km/h urbano). Cada pasada la varía un
+## poco para que no todos vayan igual.
+@export var speed_mps: float = 12.0
 
-## Número de autos activos simultáneamente.
-@export var car_count: int = 5
+## Autos del carril que se aleja (luces traseras rojas hacia el paciente).
+@export var car_count: int = 2
+## Autos del carril contrario (faros de frente hacia el paciente).
+@export var oncoming_count: int = 1
+
+## Pausa ALEATORIA (segundos) entre que un auto sale de cuadro y vuelve a entrar.
+## Da la frecuencia irregular pedida: a veces pasan seguidos, a veces hay un hueco.
+@export var gap_min_s: float = 2.5
+@export var gap_max_s: float = 8.0
 
 ## Color de los faros (blanco-azulado, LED moderno).
 @export var headlight_color: Color = Color(0.9, 0.95, 1.0)
 @export var headlight_energy: float = 8.0
 @export var headlight_range: float = 18.0
 
-## UID del recurso de malla del auto. Si es null se usa una caja placeholder.
+## Desplazamiento (Z, hacia el paciente) del carril contrario respecto al principal.
+@export var oncoming_lane_offset_z: float = 2.2
+## Brillo emisivo de los faros de frente (deslumbran más que las luces que se alejan).
+@export var oncoming_headlight_emission: float = 18.0
+
+## Malla opcional del auto. Si es null se usa una caja placeholder.
 @export var car_mesh: Mesh = null
 
-## Semáforo que regula este tráfico. Si se asigna, los autos frenan en rojo/amarillo
-## y avanzan en verde. Si queda vacío, el tráfico fluye siempre.
-@export var semaforo_path: NodePath
-## Posición X (a lo largo de la calle) de la línea de pare. Los autos vienen de
-## X negativo; frenan al llegar a esta X cuando el semáforo no está en verde.
-@export var stop_line_x: float = -1.5
-## Distancia (m) antes de la línea de pare en la que el auto empieza a frenar.
-@export var brake_distance_m: float = 9.0
-## Separación mínima entre autos (m) para que no se encimen al frenar.
-@export var min_gap_m: float = 6.0
-
-var _path: Path3D
-var _followers: Array[PathFollow3D] = []
-var _path_length: float = 0.0
-var _semaforo: Node = null
-var _stop_progress: float = 0.0
+# Estado interno: un registro por auto, con su PathFollow, el largo de su traza,
+# su velocidad de esta pasada y el tiempo de espera restante (>0 = oculto).
+var _cars: Array = []   # [{ f: PathFollow3D, len: float, speed: float, wait: float }]
+var _main_path: Path3D
+var _oncoming_path: Path3D
 
 
 func _ready() -> void:
-	_path = get_node_or_null(traffic_path) as Path3D
-	if _path == null:
+	randomize()  # semilla para los tiempos/velocidades aleatorios
+
+	# Carril que CRUZA de izquierda a derecha frente al paciente (más lejano).
+	_main_path = get_node_or_null(traffic_path) as Path3D
+	if _main_path == null:
 		push_warning("TrafficSpawner: traffic_path no asignado.")
 		return
+	_build_curve(_main_path, -4.0, false)
 
-	# Construir la curva siempre por código — evita problemas de
-	# serialización de Curve3D._data en el formato TSCN de Godot 4.
-	_build_default_curve()
-
-	_path_length = _path.curve.get_baked_length()
-	if _path_length < 0.1:
-		push_warning("TrafficSpawner: la curva del Path3D quedó vacía.")
-		return
-
-	# Semáforo regulador (opcional).
-	if semaforo_path != NodePath():
-		_semaforo = get_node_or_null(semaforo_path)
-	if _semaforo == null:
-		# Fallback: buscar un hermano que exponga is_go() (el Semaforo).
-		var p := get_parent()
-		if p != null:
-			for sib in p.get_children():
-				if sib.has_method("is_go"):
-					_semaforo = sib
-					break
-	# La curva va de x=-20 (progreso 0) a x=+20, ~1 unidad de progreso por metro:
-	# la línea de pare en stop_line_x cae en progreso (stop_line_x + 20).
-	_stop_progress = clampf(stop_line_x + 20.0, 0.0, _path_length)
+	# Carril contrario que CRUZA de derecha a izquierda (un poco más cerca del
+	# paciente). Asi en el cruce se ven autos en ambos sentidos.
+	_oncoming_path = Path3D.new()
+	_oncoming_path.name = "OncomingPath"
+	add_child(_oncoming_path)
+	_build_curve(_oncoming_path, -2.6, true)
 
 	for i in range(car_count):
-		_spawn_car(i)
+		_spawn_car(_main_path, i, false)
+	for i in range(oncoming_count):
+		_spawn_car(_oncoming_path, i, true)
 
 
-## Construye la trayectoria de tráfico por código.
-## El camino va de izquierda (x=-20) a derecha (x=20),
-## a ~3.5 m delante del paciente (z=-3.5) y ~0.9 m bajo su posición (y=-0.9).
-func _build_default_curve() -> void:
-	if _path.curve == null:
-		_path.curve = Curve3D.new()
-	else:
-		_path.curve.clear_points()
-	# add_point(position, in_tangent, out_tangent)
-	# Tangentes apuntan a lo largo del eje X para una curva suave izq→der.
-	_path.curve.add_point(
-		Vector3(-20.0, -0.9, -3.5),
-		Vector3.ZERO,
-		Vector3( 6.0,  0.0,  0.0))
-	_path.curve.add_point(
-		Vector3(  0.0, -0.9, -3.5),
-		Vector3(-6.0,  0.0,  0.0),
-		Vector3( 6.0,  0.0,  0.0))
-	_path.curve.add_point(
-		Vector3( 20.0, -0.9, -2.5),
-		Vector3(-6.0,  0.0,  0.0),
-		Vector3.ZERO)
+## Construye la traza de un carril que CRUZA la calle frente al paciente (eje X),
+## a profundidad z fija. El auto entra lejos por un lado (~25 m), pasa cerca al
+## frente del paciente (en x=0, a |z| m) y se aleja por el otro lado: asi el
+## paciente ve el glare de sus luces crecer y decrecer con la distancia.
+##   right_to_left=false: cruza de izquierda (-x) a derecha (+x).
+##   right_to_left=true : cruza de derecha (+x) a izquierda (-x).
+func _build_curve(path: Path3D, z: float, right_to_left: bool) -> void:
+	var x0 := -25.0
+	var x1 := 25.0
+	if right_to_left:
+		x0 = 25.0
+		x1 = -25.0
+	var t := (x1 - x0) * 0.25   # tangente a lo largo de X (signo segun sentido)
+	var curve := Curve3D.new()
+	curve.add_point(Vector3(x0, -0.9, z), Vector3.ZERO, Vector3(t, 0, 0))
+	curve.add_point(Vector3(0.0, -0.9, z), Vector3(-t, 0, 0), Vector3(t, 0, 0))
+	curve.add_point(Vector3(x1, -0.9, z), Vector3(-t, 0, 0), Vector3.ZERO)
+	path.curve = curve
 
 
-func _spawn_car(index: int) -> void:
+func _spawn_car(path: Path3D, index: int, oncoming: bool) -> void:
 	var follower := PathFollow3D.new()
-	follower.loop = true
+	follower.loop = false   # manejamos la reaparición manualmente
 	follower.rotation_mode = PathFollow3D.ROTATION_ORIENTED
-	_path.add_child(follower)
-	# Distribuir uniformemente en la trayectoria. progress_ratio solo es valido
-	# una vez que el PathFollow3D ya es hijo de un Path3D dentro del arbol.
-	follower.progress_ratio = float(index) / float(car_count)
-	_followers.append(follower)
+	path.add_child(follower)
 
 	# Cuerpo del auto.
 	var car_body := MeshInstance3D.new()
-	car_body.name = "CarBody_%d" % index
+	car_body.name = ("OncomingBody_%d" if oncoming else "CarBody_%d") % index
 	if car_mesh != null:
 		car_body.mesh = car_mesh
 	else:
@@ -130,103 +115,103 @@ func _spawn_car(index: int) -> void:
 		car_body.material_override = mat
 	follower.add_child(car_body)
 
-	# Luces traseras: dos SpotLight3D apuntando hacia atrás (+Z).
-	_add_taillight(follower, index, Vector3(-0.55, 0.45,  2.3))
-	_add_taillight(follower, index, Vector3( 0.55, 0.45,  2.3))
+	if oncoming:
+		# Faros de frente (deslumbran al paciente).
+		_add_headlight(follower, Vector3(-0.6, 0.45, -2.3), oncoming_headlight_emission)
+		_add_headlight(follower, Vector3( 0.6, 0.45, -2.3), oncoming_headlight_emission)
+	else:
+		# Luces traseras rojas (el paciente las ve alejarse) + faros tenues.
+		_add_taillight(follower, Vector3(-0.55, 0.45, 2.3))
+		_add_taillight(follower, Vector3( 0.55, 0.45, 2.3))
+		_add_headlight(follower, Vector3(-0.6, 0.45, -2.3), 12.0)
+		_add_headlight(follower, Vector3( 0.6, 0.45, -2.3), 12.0)
 
-	# Faros delanteros: SpotLight3D con punto emisivo (sin cono).
-	_add_headlight(follower, index, Vector3(-0.6, 0.45, -2.3))
-	_add_headlight(follower, index, Vector3( 0.6, 0.45, -2.3))
+	# Entra oculto, con una espera inicial escalonada + aleatoria, para que los
+	# autos no aparezcan todos juntos al arrancar la escena.
+	follower.visible = false
+	var car := {
+		"f": follower,
+		"len": path.curve.get_baked_length(),
+		"speed": _rand_speed(),
+		"wait": float(index) * 2.5 + randf_range(0.0, gap_max_s),
+	}
+	_cars.append(car)
 
 
-## Luz trasera: SpotLight rojo apuntando al +Z (posterior del auto).
-func _add_taillight(parent: Node3D, index: int, offset: Vector3) -> void:
+func _rand_speed() -> float:
+	return speed_mps * randf_range(0.8, 1.25)
+
+
+func _process(delta: float) -> void:
+	for car in _cars:
+		var f: PathFollow3D = car["f"]
+		if car["wait"] > 0.0:
+			# Esperando fuera de cuadro: contar el tiempo y, al llegar a 0, entrar.
+			car["wait"] -= delta
+			if car["wait"] <= 0.0:
+				f.progress = 0.0
+				car["speed"] = _rand_speed()
+				f.visible = true
+			continue
+		f.progress += car["speed"] * delta
+		if f.progress >= car["len"]:
+			# Salió de cuadro: ocultar y programar la próxima entrada (random).
+			f.visible = false
+			car["wait"] = randf_range(gap_min_s, gap_max_s)
+
+
+## Luz trasera: SpotLight rojo + globo emisivo (fuente del halo/destello).
+func _add_taillight(parent: Node3D, offset: Vector3) -> void:
 	var spot := SpotLight3D.new()
-	spot.light_color    = Color(1.0, 0.04, 0.04)
-	spot.light_energy   = 4.0
-	spot.spot_range     = 8.0
-	spot.spot_angle     = 35.0
+	spot.light_color = Color(1.0, 0.04, 0.04)
+	spot.light_energy = 3.0
+	spot.spot_range = 6.0
+	spot.spot_angle = 35.0
 	spot.spot_angle_attenuation = 0.6
-	# Apunta hacia atrás (+Z en espacio local del PathFollow3D).
 	spot.rotation_degrees = Vector3(0.0, 180.0, 0.0)
 	spot.position = offset
 	parent.add_child(spot)
 
-	# Punto emisivo rojo para hacer la luz más credible.
 	var glow := MeshInstance3D.new()
 	var sm := SphereMesh.new()
 	sm.radius = 0.045
 	sm.height = 0.09
 	glow.mesh = sm
 	var gm := StandardMaterial3D.new()
-	gm.albedo_color               = Color(1.0, 0.05, 0.05)
-	gm.emission_enabled           = true
-	gm.emission                   = Color(1.0, 0.05, 0.05)
-	gm.emission_energy_multiplier = 6.0
-	gm.shading_mode               = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gm.albedo_color = Color(1.0, 0.05, 0.05)
+	gm.emission_enabled = true
+	gm.emission = Color(1.0, 0.05, 0.05)
+	gm.emission_energy_multiplier = 7.0
+	gm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	glow.material_override = gm
 	glow.position = offset
 	parent.add_child(glow)
 
 
-func _add_headlight(parent: Node3D, index: int, offset: Vector3) -> void:
-	# SpotLight para iluminar la carretera.
+## Faro delantero: SpotLight que ilumina la calzada + globo emisivo (fuente del
+## halo/destello). emission controla cuánto deslumbra (más alto = de frente).
+func _add_headlight(parent: Node3D, offset: Vector3, emission: float) -> void:
 	var spot := SpotLight3D.new()
-	spot.light_color            = headlight_color
-	spot.light_energy           = headlight_energy
-	spot.spot_range             = headlight_range
-	spot.spot_angle             = 28.0
+	spot.light_color = headlight_color
+	spot.light_energy = headlight_energy
+	spot.spot_range = headlight_range
+	spot.spot_angle = 28.0
 	spot.spot_angle_attenuation = 0.5
-	spot.rotation_degrees       = Vector3(-5.0, 0.0, 0.0)
-	spot.position               = offset
+	spot.rotation_degrees = Vector3(-5.0, 0.0, 0.0)
+	spot.position = offset
 	parent.add_child(spot)
 
-	# Punto emisivo blanco-azulado: es la fuente visible que genera halos/destellos
-	# en el shader post-process. Radio pequeño para que sea una fuente puntual.
 	var glow := MeshInstance3D.new()
 	var sm := SphereMesh.new()
 	sm.radius = 0.055
 	sm.height = 0.11
 	glow.mesh = sm
 	var gm := StandardMaterial3D.new()
-	gm.albedo_color               = headlight_color
-	gm.emission_enabled           = true
-	gm.emission                   = headlight_color
-	gm.emission_energy_multiplier = 12.0
-	gm.shading_mode               = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gm.albedo_color = headlight_color
+	gm.emission_enabled = true
+	gm.emission = headlight_color
+	gm.emission_energy_multiplier = emission
+	gm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	glow.material_override = gm
 	glow.position = offset
 	parent.add_child(glow)
-
-
-func _process(delta: float) -> void:
-	if _path_length < 0.1:
-		return
-
-	# ¿El semáforo permite avanzar? (solo en verde).
-	var allowed: bool = _semaforo == null or _semaforo.is_go()
-
-	# Ordenar por progreso para encadenar el "car-following": cada auto no puede
-	# pasar al de adelante. Así se forma una cola detrás de la línea de pare.
-	_followers.sort_custom(func(a: PathFollow3D, b: PathFollow3D) -> bool:
-		return a.progress < b.progress)
-
-	var n := _followers.size()
-	for i in range(n):
-		var f := _followers[i]
-		var new_p := f.progress + speed_mps * delta
-
-		# Barrera del semáforo: frenado suave al acercarse a la línea de pare.
-		if not allowed and f.progress <= _stop_progress:
-			var remaining := _stop_progress - f.progress
-			if remaining < brake_distance_m:
-				var brake := clampf(remaining / brake_distance_m, 0.0, 1.0)
-				new_p = f.progress + speed_mps * delta * brake
-			new_p = min(new_p, _stop_progress)
-
-		# Barrera del auto de adelante (el siguiente en progreso): mantener gap.
-		if i < n - 1:
-			new_p = min(new_p, _followers[i + 1].progress - min_gap_m)
-
-		# Nunca retroceder (si una barrera quedó por detrás, el auto simplemente espera).
-		f.progress = max(f.progress, new_p)

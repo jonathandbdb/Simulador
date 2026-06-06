@@ -40,21 +40,45 @@ def _seed_admin(session: Session) -> None:
     print(f"[seed] admin user creado: {settings.admin_default_user}")
 
 
-def _seed_lens_catalog(session: Session) -> None:
-    existing = session.exec(select(LensCatalog).where(LensCatalog.is_active == True)).first()  # noqa: E712
-    if existing:
-        return
+# Versiones de catalogo creadas por este seed en releases anteriores. Si la
+# version activa en BD coincide con alguna de estas, asumimos que NO fue
+# editada por un admin desde el panel y la podemos reemplazar por la nueva
+# version del JSON. Si la version activa NO esta aqui, respetamos la edicion
+# manual del admin y no la pisamos.
+_KNOWN_SEED_VERSIONS = {
+    "0.0.1-seed",
+    "0.1.0-fallback",
+    "0.2.0-noche",
+    "0.3.0-clinical",
+}
 
-    # Cargar defaults/lentes.json del repo si esta disponible (montado en el container);
-    # fallback a un catalogo minimo inline.
+
+def _seed_lens_catalog(session: Session) -> None:
     catalog_data = _load_default_catalog()
+    json_version = catalog_data.get("version", "0.0.1-seed")
+    lens_count = len(catalog_data.get("catalogo", []))
+
+    existing = session.exec(select(LensCatalog).where(LensCatalog.is_active == True)).first()  # noqa: E712
+    if existing is not None:
+        if existing.version == json_version:
+            return  # nada que migrar, ya esta al dia
+        if existing.version not in _KNOWN_SEED_VERSIONS:
+            # Edicion manual del admin: no pisar.
+            print(
+                f"[seed] catalogo activo v{existing.version} NO es seed conocido; "
+                f"se respeta. JSON del repo (v{json_version}) ignorado."
+            )
+            return
+        existing.is_active = False
+        session.add(existing)
+        print(f"[seed] desactivado catalogo seed previo v{existing.version}")
+
     catalog = LensCatalog(
-        version=catalog_data.get("version", "0.0.1-seed"),
+        version=json_version,
         data=json.dumps(catalog_data, ensure_ascii=False),
         is_active=True,
     )
     session.add(catalog)
-    lens_count = len(catalog_data.get("catalogo", []))
     print(f"[seed] catalogo de lentes activo: v{catalog.version} ({lens_count} lentes)")
 
 
@@ -71,21 +95,26 @@ def _load_default_catalog() -> dict:
                 return json.loads(p.read_text(encoding="utf-8"))
             except Exception as e:  # noqa: BLE001
                 print(f"[seed] error leyendo {p}: {e}")
-    # Fallback minimo.
+    # Fallback minimo. Mantiene la misma version semantica que el JSON del repo
+    # asi nunca se promueve sobre un catalogo recalibrado por error.
     return {
-        "version": "0.1.0-fallback",
+        "version": "0.3.0-clinical",
         "catalogo": [
             {
                 "id": "monofocal",
                 "nombre": "Monofocal Estandar",
+                "descripcion": "Foco unico. Fallback minimo del seed.",
                 "params": {
-                    "foco_lejos_m": {"default": 6.0, "min": 0.0, "max": 20.0},
-                    "foco_intermedio_m": {"default": 0.0, "min": 0.0, "max": 20.0},
-                    "foco_cerca_m": {"default": 0.0, "min": 0.0, "max": 20.0},
-                    "profundidad_foco_m": {"default": 0.6, "min": 0.1, "max": 5.0},
-                    "desenfoque_max": {"default": 0.9, "min": 0.0, "max": 1.0},
-                    "halo_intensity": {"default": 0.05, "min": 0.0, "max": 0.3},
-                    "contrast_loss": {"default": 0.0, "min": 0.0, "max": 0.2},
+                    "foco_lejos_m":       {"default": 6.0,  "min": 0.0, "max": 20.0},
+                    "foco_intermedio_m":  {"default": 0.0,  "min": 0.0, "max": 20.0},
+                    "foco_cerca_m":       {"default": 0.0,  "min": 0.0, "max": 20.0},
+                    "profundidad_foco_m": {"default": 1.2,  "min": 0.1, "max": 5.0},
+                    "desenfoque_max":     {"default": 0.9,  "min": 0.0, "max": 1.0},
+                    "halo_intensity":     {"default": 0.03, "min": 0.0, "max": 1.0},
+                    "halo_extra_rings":   {"default": 0.0,  "min": 0.0, "max": 1.0},
+                    "contrast_loss":      {"default": 0.0,  "min": 0.0, "max": 0.6},
+                    "destello_intensity": {"default": 0.0,  "min": 0.0, "max": 1.0},
+                    "destello_rayos":     {"default": 0.0,  "min": 0.0, "max": 16.0},
                 },
             },
         ],

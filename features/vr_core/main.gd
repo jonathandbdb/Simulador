@@ -59,10 +59,11 @@ const SCENARIOS := {
 		"halos":     true,
 		"env":       "night",
 		"show_book": false,
-		# Umbral bajo: de noche TODAS las fuentes (faros, farolas, semaforo,
-		# celular) deben superar el umbral tras el tonemap AGX y generar el
-		# efecto de la lente. Si se sube, los halos dejan de aparecer.
-		"halo_threshold": 0.55,
+		# Umbral medio-alto: con Filmic las fuentes emisivas (faros, farolas,
+		# semaforo) quedan altas (~0.9) y lo superan; la calzada/cebra iluminada
+		# queda por debajo. Junto con surface_factor() evita que la pintura del
+		# piso genere halos/destellos falsos. Si se baja, la calzada deslumbra.
+		"halo_threshold": 0.72,
 	},
 }
 
@@ -96,17 +97,21 @@ const NIGHT_PARAMS := {
 	# Glow encendido de noche: da el "bloom" alrededor de faros/semaforo/celular
 	# que, sumado al post-proceso de halos, vende la disfotopsia nocturna.
 	"glow_enabled":   true,
-	"glow_intensity": 0.8,
+	"glow_intensity": 0.6,
 	"glow_strength":  1.0,
-	"glow_bloom":     0.15,
-	# Umbral alto: solo las fuentes muy brillantes (emisivas) generan bloom,
-	# no la calzada tenue. Mantiene el fondo oscuro y limpio.
-	"glow_hdr_threshold": 1.2,
-	# AGX + exposicion baja: el grueso de la escena queda oscuro y solo las
-	# fuentes (faros, semaforo, celular, farolas) se mantienen brillantes. Sin
-	# esto, con tonemap lineal, la suma de muchas luces quema todo a blanco.
-	"tonemap_mode":     4,     # AGX
-	"tonemap_exposure": 0.5,
+	"glow_bloom":     0.1,
+	# Umbral SUBIDO (1.2 -> 1.6): la pintura vial y la cebra iluminadas por las
+	# farolas quedaban por encima de 1.2 y bloomeaban, dominando la escena. Con
+	# 1.6 solo las fuentes emisivas (faros, semaforo, farolas) hacen bloom y la
+	# calzada queda limpia. (Auditoria escena nocturna.)
+	"glow_hdr_threshold": 1.6,
+	# Filmic en vez de AGX: AGX desatura fuerte las altas luces, asi una luz de
+	# freno roja o el semaforo verde/rojo se veian BLANCOS (perdian su color, que
+	# es info clinica). Filmic comprime las altas luces igual de bien pero
+	# conserva el tono de las fuentes de color. Exposicion baja mantiene el fondo
+	# oscuro. (Auditoria escena nocturna.)
+	"tonemap_mode":     2,     # Filmic
+	"tonemap_exposure": 0.6,
 	"tonemap_white":    8.0,
 }
 
@@ -126,9 +131,6 @@ const NIGHT_PARAMS := {
 var xr_interface: XRInterface
 var fps_accumulator: float = 0.0
 var fps_frames: int = 0
-# Indice de la lente activa en cada ojo dentro de DataManager.get_lens_ids().
-var _lens_index_left: int = 0
-var _lens_index_right: int = 0
 # Sprint 6: nodo de captura de streaming (creado en _ready).
 var _streaming_capture: Node = null
 # Toggle del shader post-proceso. Cuando esta en false, el quad se oculta
@@ -224,17 +226,9 @@ func _on_streaming_command_received(cmd: Dictionary, peer_id: int) -> void:
 			if lens_id == "":
 				push_warning("main: apply_lens sin lens_id (peer %d)" % peer_id)
 				return
-			var ids := DataManager.get_lens_ids()
-			if not ids.has(lens_id):
+			if not DataManager.get_lens_ids().has(lens_id):
 				push_warning("main: apply_lens lens_id desconocido '%s' (peer %d)" % [lens_id, peer_id])
 				return
-			# Actualizar tambien los indices internos para que los botones del
-			# control derecho sigan ciclando coherentemente.
-			var idx := ids.find(lens_id)
-			if eye == "left" or eye == "both":
-				_lens_index_left = idx
-			if eye == "right" or eye == "both":
-				_lens_index_right = idx
 			DataManager.apply_lens(lens_id, eye)
 			print("main: tablet aplico '%s' en ojo '%s'" % [lens_id, eye])
 		"override_params":
@@ -330,11 +324,23 @@ func _apply_initial_lens() -> void:
 	if not ids.has(initial_id):
 		initial_id = ids[0]
 
-	_lens_index_left = ids.find(initial_id)
-	_lens_index_right = _lens_index_left
 	# apply_lens("both") emite vision_state_changed para ambos ojos,
 	# y _on_vision_state_changed actualiza los uniforms del shader.
 	DataManager.apply_lens(initial_id, "both")
+
+
+## Devuelve el indice (en DataManager.get_lens_ids()) de la lente actualmente
+## aplicada al ojo dado. Si no hay lente o no se encuentra, devuelve 0.
+## Se calcula on-demand desde DataManager.current_vision_state para evitar el
+## desfase que tendria un indice cacheado al cambiarse la lente desde otra
+## fuente (tablet, sync de backend, override_params, etc).
+func _current_lens_index(eye: String) -> int:
+	var lens_id: String = DataManager.current_vision_state.get(eye, {}).get("lens_id", "")
+	if lens_id == "":
+		return 0
+	var ids := DataManager.get_lens_ids()
+	var idx := ids.find(lens_id)
+	return idx if idx >= 0 else 0
 
 
 func _on_vision_state_changed(eye: String, params: Dictionary) -> void:
@@ -400,11 +406,11 @@ func set_astigmatism(eye: String, enabled: bool, magnitude: float, angle: float)
 
 
 func _update_lens_hud() -> void:
-	var ids := DataManager.get_lens_ids()
-	if ids.is_empty():
-		return
-	var left_id: String = ids[_lens_index_left] if _lens_index_left < ids.size() else "?"
-	var right_id: String = ids[_lens_index_right] if _lens_index_right < ids.size() else "?"
+	# Fuente unica de verdad: DataManager.current_vision_state. No cachear el
+	# id de la lente — la tablet, el sync con backend o un override_params
+	# pueden cambiarlo entre apply_lens y el siguiente refresh del HUD.
+	var left_id: String = DataManager.current_vision_state.get("left", {}).get("lens_id", "?")
+	var right_id: String = DataManager.current_vision_state.get("right", {}).get("lens_id", "?")
 	var blend := " (Blend)" if left_id != right_id else ""
 	sync_label.text = "L: %s\nR: %s%s" % [left_id, right_id, blend]
 
@@ -420,16 +426,16 @@ func _on_right_hand_button_pressed(name: String) -> void:
 	match name:
 		"ax_button":
 			# A — proxima lente para el ojo izquierdo.
-			_lens_index_left = (_lens_index_left + 1) % ids.size()
-			DataManager.apply_lens(ids[_lens_index_left], "left")
+			var next_idx := (_current_lens_index("left") + 1) % ids.size()
+			DataManager.apply_lens(ids[next_idx], "left")
 		"by_button":
 			# B — proxima lente para el ojo derecho.
-			_lens_index_right = (_lens_index_right + 1) % ids.size()
-			DataManager.apply_lens(ids[_lens_index_right], "right")
+			var next_idx := (_current_lens_index("right") + 1) % ids.size()
+			DataManager.apply_lens(ids[next_idx], "right")
 		"trigger_click":
 			# Trigger — reset Blend: misma lente en ambos ojos (la del ojo izq).
-			_lens_index_right = _lens_index_left
-			DataManager.apply_lens(ids[_lens_index_left], "both")
+			var left_idx := _current_lens_index("left")
+			DataManager.apply_lens(ids[left_idx], "both")
 		"grip_click":
 			# Grip — toggle del shader post-proceso (modo "sin lentes").
 			_toggle_post_process()
