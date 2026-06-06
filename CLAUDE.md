@@ -63,7 +63,7 @@ VR ophthalmology simulator for Meta Quest 3 (Quest 2 best-effort), built with **
 - `tablet/streaming_client.tscn` + `.gd` — tablet control UI. Receives lens catalog via WebSocket "hello", shows per-eye preview using `eye_preview.gdshader` (canvas_item shader that simulates blur/halo client-side from catalog params), split-panel UI in blend mode.
 - `tablet/eye_preview.gdshader` — `shader_type canvas_item`. Box blur 9-tap (radius 8 px), 2-ring halo, contrast loss. Applied to each TextureRect panel to simulate per-eye appearance without extra SubViewports.
 - `features/scenarios/consultorio/` — immersive office scene (Sprint 10, PENDING). Book holder anchored to right XRController, `runtime_focus_error` uniform driven by hand–camera distance vs `focal_distance_m`.
-- `features/scenarios/auto_noche/` — night driving scene (Sprint 11, PENDING). Traffic spawner on Path3D, phone grabber for left controller.
+- `features/scenarios/ruta_noche/` — night road scene (replaces the old `auto_noche`, now removed). Everything is generated from code in `ruta_noche.gd`: road tiles (`res://road2/`), street lamps extracted as a single module from `res://street-light/` and repeated, moonlight, and `ruta_traffic.gd` (cars from `res://autos/fab.fbx`, lights made emissive so the post-process turns them into halos). Near lamps get real SpotLights; far lamps are emissive-only.
 
 ### `backend/`
 Full FastAPI + Postgres 16 + MinIO + Caddy stack.

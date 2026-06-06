@@ -33,6 +33,11 @@ const LAMP_OBJ := "res://street-light/source/Untitled_3/Untitled_3.obj"
 @export var lamp_emission: float = 18.0
 ## Radio (m) desde el paciente dentro del cual las farolas llevan SpotLight real.
 @export var lamp_light_radius_m: float = 30.0
+## Solo las farolas DELANTE del paciente (que mira a -Z) llevan SpotLight real.
+## Las de atrás conservan su cabezal emisivo (siguen brillando + bloom), pero no
+## gastan una luz en tiempo real iluminando asfalto fuera de la vista de conducción.
+## Optimización Quest: ~50% menos luces real-time sin afectar la vista al frente.
+@export var lamp_lights_only_ahead: bool = true
 ## Intensidad del SpotLight que ilumina la calzada.
 @export var lamp_energy: float = 8.0
 ## Alcance del SpotLight.
@@ -254,7 +259,12 @@ func _spawn_lamps(lamp_mesh: ArrayMesh, tile_len: float, road_half_x: float) -> 
 		# Evitar plantar una farola justo encima de la cámara/paciente (origen).
 		if absf(z) < 3.0:
 			continue
-		var with_light: bool = absf(z) <= lamp_light_radius_m
+		# El paciente mira a -Z: "delante" = z negativo (margen chico para no
+		# encender la farola apenas detrás del hombro). Las de atrás quedan
+		# emisivas sin SpotLight -> ahorro de luces real-time en Quest.
+		var ahead: bool = z <= 2.0
+		var with_light: bool = absf(z) <= lamp_light_radius_m \
+			and (ahead or not lamp_lights_only_ahead)
 		# Hilera izquierda (brazo +x hacia el centro).
 		_spawn_lamp_side(lamp_mesh, "izq_%d" % i, Vector3(-edge_x, 0.0, z), 0.0, with_light)
 		# Hilera derecha (rotada 180°: brazo -x hacia el centro).

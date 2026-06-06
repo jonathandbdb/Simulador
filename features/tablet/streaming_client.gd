@@ -572,7 +572,7 @@ func _rebuild_scenario_list() -> void:
 func _scenario_label(sid: String) -> String:
 	match sid:
 		"consultorio": return "Consultorio"
-		"auto_noche":  return "Auto Noche"
+		"ruta_noche":  return "Ruta Noche"
 		_:             return sid.capitalize()
 
 
@@ -593,7 +593,7 @@ func _on_scenario_button_pressed(scenario_id: String) -> void:
 func _btn_sid(label_text: String) -> String:
 	match label_text:
 		"Consultorio": return "consultorio"
-		"Auto Noche":  return "auto_noche"
+		"Ruta Noche":  return "ruta_noche"
 		_:             return label_text.to_lower()
 
 

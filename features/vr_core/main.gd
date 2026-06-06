@@ -57,17 +57,6 @@ const SCENARIOS := {
 		# halo; la pagina iluminada no debe disparar el efecto.
 		"halo_threshold": 0.9,
 	},
-	"auto_noche": {
-		"scene":     "res://features/scenarios/auto_noche/auto_noche.tscn",
-		"halos":     true,
-		"env":       "night",
-		"show_book": false,
-		# Umbral medio-alto: con Filmic las fuentes emisivas (faros, farolas,
-		# semaforo) quedan altas (~0.9) y lo superan; la calzada/cebra iluminada
-		# queda por debajo. Junto con surface_factor() evita que la pintura del
-		# piso genere halos/destellos falsos. Si se baja, la calzada deslumbra.
-		"halo_threshold": 0.72,
-	},
 	"ruta_noche": {
 		"scene":     "res://features/scenarios/ruta_noche/ruta_noche.tscn",
 		"halos":     true,
@@ -88,8 +77,12 @@ const DAY_PARAMS := {
 	"ambient_energy": 0.4,
 	# Glow apagado de dia: no hay fuentes puntuales que justifiquen bloom.
 	"glow_enabled": false,
-	# De dia el sol sí proyecta sombras (da volumen al consultorio).
-	"sun_shadow": true,
+	# El sol de main NO proyecta sombra: el consultorio trae su propio SunLight
+	# (con sombra, tuneado para la oficina), asi que la sombra direccional de main
+	# era un SEGUNDO pase de sombras redundante sobre el modelo (~1.2M tris).
+	# Apagarlo deja una sola sombra direccional (la del consultorio) — mismo
+	# volumen visual, la mitad del costo de sombras direccionales en Quest.
+	"sun_shadow": false,
 	# AGX comprime altas luces sin quemar (mismo criterio que el consultorio).
 	"tonemap_mode": 4,       # AGX
 	"tonemap_exposure": 1.0,
@@ -535,16 +528,6 @@ func _apply_scenario_config(cfg: Dictionary) -> void:
 	var show_book: bool = cfg.get("show_book", true)
 	book_holder.visible = show_book
 	book_holder.set_process(show_book)
-
-	# PhoneHolder en auto_noche: conectar con PostProcessQuad y camara.
-	if _scenario_node != null:
-		var phone := _scenario_node.get_node_or_null("PhoneAnchor")
-		if phone != null:
-			phone._post_quad = post_process_quad
-			phone._camera   = xr_camera
-			# Re-init shader mat (el _ready() corrio antes de que se asignaran).
-			if phone._post_quad != null:
-				phone._shader_mat = phone._post_quad.get_active_material(0) as ShaderMaterial
 
 
 func _toggle_post_process() -> void:

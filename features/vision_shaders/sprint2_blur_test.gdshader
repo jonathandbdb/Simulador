@@ -444,8 +444,15 @@ void fragment() {
 	blur_amount = clamp(blur_amount, 0.0, 1.0);
 
 	vec3 base = texture(screen_texture, uv).rgb;
-	vec3 blurred = box_blur_9tap(uv, texel, BLUR_RADIUS_PX * blur_amount);
-	vec3 color = mix(base, blurred, blur_amount);
+	// El 9-tap solo corre cuando hay desenfoque real: en pixeles en foco
+	// (blur_amount ~ 0) se evitan 9 fetches sin cambiar el resultado (mix con
+	// peso ~0 ya devolvia 'base'). La rama es coherente en regiones amplias
+	// (todo el fondo en foco), asi que el ahorro es efectivo en GPU.
+	vec3 color = base;
+	if (blur_amount > 0.001) {
+		vec3 blurred = box_blur_9tap(uv, texel, BLUR_RADIUS_PX * blur_amount);
+		color = mix(base, blurred, blur_amount);
+	}
 
 	// Perdida de contraste: comprime el rango de luminancia. Se aplica a la imagen
 	// retiniana (base + blur) ANTES del halo, porque el halo es luz dispersada
@@ -467,16 +474,28 @@ void fragment() {
 	// fuente, no de la distancia.
 	// Supresion de superficies extensas: el glare solo nace de fuentes puntuales,
 	// no de la calzada/cebra iluminada (que de noche satura a casi blanco).
-	float surf = surface_factor(uv);
-	color += halo_rings(uv, texel, halo_amount, halo_extra, INV_PROJECTION_MATRIX) * surf;
-
-	// Destello/starburst: rayos radiales desde fuentes muy brillantes.
-	// Solo activo cuando destello_intensity > 0 (escena nocturna con IOL difractiva).
-	color += starburst(uv, texel, destello_int, destello_n, INV_PROJECTION_MATRIX) * surf;
-
-	// Astigmatismo: streak 1D en el eje configurado por ojo.
-	if (astig_on > 0.5) {
-		color += astigmatism_streak(uv, texel, astig_mag, astig_ang) * surf;
+	// Glare (halo + starburst + astigmatismo). Estos parametros son uniforms
+	// (constantes por ojo), asi que la rama es TOTALMENTE coherente — sin
+	// divergencia. Cuando la lente del ojo no activa ningun glare (p.ej. el
+	// consultorio de dia con halos OFF) se evitan por completo surface_factor
+	// (3 fetches, 2 de ellos a mips) y las funciones de glare, sin cambiar el
+	// resultado (antes surf se computaba y se multiplicaba por ceros).
+	bool has_halo  = halo_amount > 0.01;
+	bool has_star  = destello_int > 0.01 && destello_n >= 1.0;
+	bool has_astig = astig_on > 0.5 && astig_mag >= 0.5;
+	if (has_halo || has_star || has_astig) {
+		// Supresion de superficies extensas: el glare solo nace de fuentes
+		// puntuales, no de la calzada/cebra iluminada (que de noche satura).
+		float surf = surface_factor(uv);
+		if (has_halo) {
+			color += halo_rings(uv, texel, halo_amount, halo_extra, INV_PROJECTION_MATRIX) * surf;
+		}
+		if (has_star) {
+			color += starburst(uv, texel, destello_int, destello_n, INV_PROJECTION_MATRIX) * surf;
+		}
+		if (has_astig) {
+			color += astigmatism_streak(uv, texel, astig_mag, astig_ang) * surf;
+		}
 	}
 
 	ALBEDO = color;
