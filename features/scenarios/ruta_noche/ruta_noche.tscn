@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://ccrwpgm76yt0f"]
+
+[ext_resource type="Script" path="res://features/scenarios/ruta_noche/ruta_noche.gd" id="1_v1ieq"]
+
+[node name="RutaNoche" type="Node3D" unique_id=1288053240]
+script = ExtResource("1_v1ieq")

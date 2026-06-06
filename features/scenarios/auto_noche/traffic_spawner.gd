@@ -160,18 +160,10 @@ func _process(delta: float) -> void:
 			car["wait"] = randf_range(gap_min_s, gap_max_s)
 
 
-## Luz trasera: SpotLight rojo + globo emisivo (fuente del halo/destello).
+## Luz trasera: SOLO globo emisivo (sin SpotLight). El globo ya dispara el
+## halo/destello del shader y se ve rojo; un SpotLight trasero casi no ilumina
+## nada y cada luz real es cara en Forward+. Optimización de rendimiento.
 func _add_taillight(parent: Node3D, offset: Vector3) -> void:
-	var spot := SpotLight3D.new()
-	spot.light_color = Color(1.0, 0.04, 0.04)
-	spot.light_energy = 3.0
-	spot.spot_range = 6.0
-	spot.spot_angle = 35.0
-	spot.spot_angle_attenuation = 0.6
-	spot.rotation_degrees = Vector3(0.0, 180.0, 0.0)
-	spot.position = offset
-	parent.add_child(spot)
-
 	var glow := MeshInstance3D.new()
 	var sm := SphereMesh.new()
 	sm.radius = 0.045

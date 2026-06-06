@@ -133,7 +133,7 @@ const float HALO_PUPIL_DILATION_GAIN = 1.7;
 // Largo del rayo en px a intensity=1, modulado por brillo de fuente. Rayos con
 // longitud/intensidad/angulo variados por hash (sin simetria mecanica).
 const float STARBURST_MAX_LEN_PX = 110.0;
-const int   STARBURST_STEPS      = 12;   // con mip en los pasos lejanos alcanza
+const int   STARBURST_STEPS      = 8;    // bajado de 12: el starburst corre en TODA
 
 
 float linear_depth_meters(float raw_depth, vec2 uv, mat4 inv_proj) {
@@ -348,7 +348,7 @@ vec3 astigmatism_streak(vec2 uv, vec2 texel, float magnitude_px, float angle) {
 	// 18 muestras con mip LEVE: el mip alto emborrona la fuente y le quita brillo
 	// (el streak se apaga); un mip bajo solo tapa los huecos del muestreo sin matar
 	// la fuente. Gaussiana -> trazo continuo sin escalones ni circulitos.
-	const int N = 18;
+	const int N = 13;
 	const float SIGMA = 0.45;
 	float inv_above = 1.0 / max(1.0 - halo_threshold, 0.001);
 	float inv2s2 = 1.0 / (2.0 * SIGMA * SIGMA);
@@ -383,7 +383,14 @@ float surface_factor(vec2 uv) {
 	float a5 = src_brightness(textureLod(screen_texture, uv, 5.0).rgb);
 	float a3 = src_brightness(textureLod(screen_texture, uv, 3.0).rgb);
 	float area = max(a5, a3 * 0.85);
-	return 1.0 - smoothstep(0.28, 0.50, area);
+	float surf = 1.0 - smoothstep(0.28, 0.50, area);
+	// Excepcion para FUENTES PUNTUALES (faros de autos, farolas): si el pixel
+	// central destaca mucho sobre el area amplia, es un pico de luz, no una
+	// superficie -> NO suprimir, aunque el area sea brillante. Una calzada/cebra
+	// iluminada es uniforme (centro ~ area) -> el pico es ~0 -> se suprime igual.
+	float center = src_brightness(texture(screen_texture, uv).rgb);
+	float peak = smoothstep(0.12, 0.30, center - area);
+	return max(surf, peak);
 }
 
 void fragment() {

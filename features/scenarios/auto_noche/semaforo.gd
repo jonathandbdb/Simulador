@@ -81,7 +81,11 @@ func _apply_state(active: String) -> void:
 	for color in _lights.keys():
 		var light := _lights[color] as Light3D
 		if light != null:
-			light.light_energy = on_energy if color == active else 0.0
+			var on: bool = color == active
+			light.light_energy = on_energy if on else 0.0
+			# Ocultar la luz apagada saca su SpotLight del cómputo del renderer
+			# (no basta con energy=0). Solo 1 de las 3 luces aporta costo a la vez.
+			light.visible = on
 		var bulb := _bulbs[color] as StandardMaterial3D
 		if bulb != null:
 			bulb.emission_energy_multiplier = bulb_on_emission if color == active else bulb_off_emission

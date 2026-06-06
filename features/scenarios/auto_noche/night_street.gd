@@ -73,6 +73,14 @@ extends Node3D
 ## es un punto brillante que, al cambiar de lente, genera halo/destello. Sin
 ## esto las farolas solo proyectan luz al piso y no disparan el efecto óptico.
 @export var lamp_show_bulb: bool = true
+## Máximo de cabezales con luz REAL (SpotLight3D). Las 36 luces reales (18 postes
+## × 2 cabezales) hundían los FPS en Quest: cada SpotLight en Forward+ es caro y
+## sus volúmenes se solapan. Los cabezales se ordenan por cercanía al paciente
+## (origen) y SOLO los N más cercanos proyectan luz al piso; el resto conserva su
+## bombilla emisiva, que es lo que dispara el halo del shader y es casi gratis
+## (geometría unshaded). A lo lejos una farola se ve como un punto brillante igual
+## que en la realidad, así que la experiencia no cambia. Subir solo si hace falta.
+@export var lamp_max_real_lights: int = 4
 
 # ----------------------------------------------------------------------
 # Líneas viales (señalización de la calzada)
@@ -240,6 +248,10 @@ func _spawn_lamps() -> void:
 	for p in LAMP_POSITIONS_M:
 		center_y += p.y
 	center_y /= float(LAMP_POSITIONS_M.size())
+
+	# Junta TODOS los cabezales (posición mundo ya transformada) para poder
+	# ordenarlos por cercanía al paciente antes de decidir cuáles llevan luz real.
+	var heads: Array = []   # [{ name: String, pos: Vector3 }]
 	for i in range(LAMP_POSITIONS_M.size()):
 		var base := LAMP_POSITIONS_M[i]
 		# Cada poste tiene DOS cabezales: uno apunta a la calle y otro a la vereda.
@@ -249,16 +261,22 @@ func _spawn_lamps() -> void:
 			base.x,
 			base.y + dir_to_center * lamp_arm_reach_m,
 			base.z + lamp_head_height_m)
-		_spawn_lamp_at("%d_calle" % i, road_position + basis * head_street)
+		heads.append({"name": "%d_calle" % i, "pos": road_position + basis * head_street})
 		# Cabezal sobre la vereda (lado opuesto).
 		var head_walk := Vector3(
 			base.x,
 			base.y - dir_to_center * lamp_sidewalk_reach_m,
 			base.z + lamp_head_height_m)
-		_spawn_lamp_at("%d_vereda" % i, road_position + basis * head_walk)
+		heads.append({"name": "%d_vereda" % i, "pos": road_position + basis * head_walk})
+
+	# Ordena por distancia al paciente (origen): los más cercanos primero. Solo los
+	# primeros lamp_max_real_lights llevan SpotLight3D real; el resto, solo bombilla.
+	heads.sort_custom(func(a, b): return a["pos"].length_squared() < b["pos"].length_squared())
+	for idx in range(heads.size()):
+		_spawn_lamp_at(heads[idx]["name"], heads[idx]["pos"], idx < lamp_max_real_lights)
 
 
-func _spawn_lamp_at(suffix: String, head_pos: Vector3) -> void:
+func _spawn_lamp_at(suffix: String, head_pos: Vector3, with_light: bool) -> void:
 	var root := Node3D.new()
 	root.name = "Lamp_%s" % suffix
 	root.position = head_pos
@@ -284,7 +302,10 @@ func _spawn_lamp_at(suffix: String, head_pos: Vector3) -> void:
 		bulb.position = Vector3(0.0, -0.05, 0.0)
 		root.add_child(bulb)
 
-	# Luz real apuntando hacia abajo a la calzada.
+	# Luz real apuntando hacia abajo a la calzada. Solo en las farolas cercanas:
+	# las lejanas se ven solo por su bombilla emisiva (ver lamp_max_real_lights).
+	if not with_light:
+		return
 	var light := SpotLight3D.new()
 	light.light_color = lamp_color
 	light.light_energy = lamp_energy

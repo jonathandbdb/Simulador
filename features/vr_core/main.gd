@@ -24,7 +24,10 @@ const TARGET_PHYSICS_TICKS := 90
 # que hace PCVR/Air Link). >1.0 = mas nitido pero mas costo GPU. Se compensa
 # con foveated rendering (xr/openxr/foveation_*). 1.15 es un punto conservador
 # para Quest 2; Quest 3 admite mas holgura.
-const XR_RENDER_SCALE := 1.15
+# Bajado a 1.0: el post-proceso nocturno (halo/starburst/astig) es fill-rate
+# bound; supersamplear lo multiplicaba (a 1.15 => +32% de píxeles a sombrear ×2
+# ojos). 1.0 es el mayor ahorro de GPU en Quest sin tocar el efecto.
+const XR_RENDER_SCALE := 1.0
 
 # Lente inicial aplicada a ambos ojos al cargar el catalogo. Si no existe
 # en el catalogo, se usa la primera disponible.
@@ -65,6 +68,13 @@ const SCENARIOS := {
 		# piso genere halos/destellos falsos. Si se baja, la calzada deslumbra.
 		"halo_threshold": 0.72,
 	},
+	"ruta_noche": {
+		"scene":     "res://features/scenarios/ruta_noche/ruta_noche.tscn",
+		"halos":     true,
+		"env":       "night",
+		"show_book": false,
+		"halo_threshold": 0.72,
+	},
 }
 
 # Parametros visuales para el consultorio en modo dia fijo.
@@ -78,6 +88,8 @@ const DAY_PARAMS := {
 	"ambient_energy": 0.4,
 	# Glow apagado de dia: no hay fuentes puntuales que justifiquen bloom.
 	"glow_enabled": false,
+	# De dia el sol sí proyecta sombras (da volumen al consultorio).
+	"sun_shadow": true,
 	# AGX comprime altas luces sin quemar (mismo criterio que el consultorio).
 	"tonemap_mode": 4,       # AGX
 	"tonemap_exposure": 1.0,
@@ -94,6 +106,9 @@ const NIGHT_PARAMS := {
 	"ground_horizon":Color(0.04, 0.04, 0.06, 1),
 	"ambient_color": Color(0.08, 0.09, 0.14, 1),
 	"ambient_energy":0.40,
+	# Sin sombra direccional de noche (el sol está casi apagado): ahorra un pase
+	# de sombras completo sobre el modelo de la calle.
+	"sun_shadow":    false,
 	# Glow encendido de noche: da el "bloom" alrededor de faros/semaforo/celular
 	# que, sumado al post-proceso de halos, vende la disfotopsia nocturna.
 	"glow_enabled":   true,
@@ -550,6 +565,10 @@ func _update_lens_hud_with_toggle() -> void:
 func _apply_environment(params: Dictionary) -> void:
 	dir_light.light_energy = params.get("sun_energy", 1.0)
 	dir_light.light_color  = params.get("sun_color", Color.WHITE)
+	# De noche el sol está casi apagado: su mapa de sombras no aporta nada visual
+	# pero igual renderiza un pase de sombras sobre TODO el modelo (miles de meshes).
+	# Apagarlo es la optimización de mayor impacto de la escena nocturna.
+	dir_light.shadow_enabled = params.get("sun_shadow", true)
 
 	var env: Environment = world_env.environment
 	if env == null:
