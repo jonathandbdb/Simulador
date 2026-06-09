@@ -20,6 +20,10 @@ extends Node3D
 const FBX := "res://autos/source/fab.fbx"
 const LIGHTS_TEX := "res://autos/textures/lights.jpg"
 
+## Modelos cuyo frente la detección automática deja al revés (frente y trasera
+## casi idénticos). Se les fuerza un giro de 180°. Clave = substring del nombre.
+const FRONT_FLIP := {"coupe": true}
+
 ## Máximo de autos simultáneos (pocos y espaciados).
 @export var max_cars: int = 3
 ## Mitad del largo de la ruta (límite de aparición/desaparición), en metros.
@@ -41,26 +45,41 @@ const LIGHTS_TEX := "res://autos/textures/lights.jpg"
 var _templates: Array[Node3D] = []
 var _active: Array = []          # [{node, speed, dir}]
 var _spawn_timer: float = 0.0
-var _lights_mat: StandardMaterial3D
+var _headlight_mat: StandardMaterial3D   # frente: blanco
+var _taillight_mat: StandardMaterial3D   # atrás: rojo forzado
+var _hidden_mat: StandardMaterial3D      # oculta la superficie de luces original
 var _lights_img: Image
 
 
 func _ready() -> void:
-	# Material emisivo de las luces, compartido por todos los autos: usa lights.jpg
-	# como mapa de emisión (blanco -> faro blanco, rojo -> piloto rojo).
 	var tex: Texture2D = load(LIGHTS_TEX)
-	_lights_mat = StandardMaterial3D.new()
-	_lights_mat.albedo_texture = tex
-	_lights_mat.emission_enabled = true
-	_lights_mat.emission = Color.WHITE
-	_lights_mat.emission_texture = tex
-	_lights_mat.emission_energy_multiplier = car_light_emission
+	# Frente: emisión BLANCA con la textura como máscara de forma (faros blancos).
+	_headlight_mat = _emissive(tex, Color.WHITE, car_light_emission)
+	# Atrás: emisión ROJA FORZADA. emission_color rojo MULTIPLICA la textura: el
+	# verde/azul del pixel (que con energía alta desaturaban el piloto a blanco)
+	# quedan ~0 -> rojo puro, sin importar que la textura del piloto sea clara o
+	# tenga luz de reversa blanca. La textura sigue dando la FORMA del piloto.
+	_taillight_mat = _emissive(tex, Color(1.0, 0.04, 0.03), car_light_emission * 0.8)
+	# Oculta la superficie de luces original del modelo (la reemplaza el split).
+	_hidden_mat = StandardMaterial3D.new()
+	_hidden_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_hidden_mat.albedo_color = Color(0.0, 0.0, 0.0, 0.0)
 	# Imagen (descomprimida) para detectar el frente por el color de los píxeles.
 	if tex != null:
 		_lights_img = tex.get_image()
 		if _lights_img != null and _lights_img.is_compressed():
 			_lights_img.decompress()
 	_build_templates()
+
+
+func _emissive(tex: Texture2D, color: Color, energy: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = tex
+	m.emission_enabled = true
+	m.emission = color
+	m.emission_texture = tex
+	m.emission_energy_multiplier = energy
+	return m
 
 
 # ----------------------------------------------------------------------
@@ -102,13 +121,19 @@ func _build_templates() -> void:
 	for b in bodies:
 		var car := Node3D.new()
 		car.name = String(b.name).replace(" ", "_")
-		var center: Vector3 = b.position
+		# Recentrar SOLO en X/Z por el centro geométrico de la carrocería (el origen
+		# del nodo de varios modelos está desplazado y los dejaba "corridos" fuera
+		# del carril). El eje Y se mantiene en el origen del nodo: centrar también
+		# en Y hundía los autos medio cuerpo bajo el asfalto (las ruedas deben
+		# quedar sobre la calzada, no el centro del auto en el piso).
+		var gc: Vector3 = b.transform * b.mesh.get_aabb().get_center()
+		var center: Vector3 = Vector3(gc.x, b.position.y, gc.z)
 		var pivot := Node3D.new()
 		pivot.name = "Body"
 		pivot.rotation.y = _front_yaw(b, center, groups[b])
 		car.add_child(pivot)
 		var body_mi := _copy_mesh_into(pivot, b, center)
-		_make_lights_emissive(body_mi)
+		_split_car_lights(body_mi, pivot)
 		for w in groups[b]:
 			_copy_mesh_into(pivot, w, center)
 		_templates.append(car)
@@ -134,23 +159,32 @@ func _lights_surface(mi: MeshInstance3D) -> int:
 ## BLANCOS (faros) vs ROJOS (pilotos) de lights.jpg: el frente es el extremo
 ## donde predomina el blanco. Robusto aunque haya luces de reversa blancas atrás.
 func _front_yaw(body: MeshInstance3D, center: Vector3, wheels: Array) -> float:
-	# El LARGO del auto es el eje LOCAL MÁS LARGO de la malla (casi todos en Y,
-	# pero p.ej. el Coupe está modelado con el largo en X). Llevado a mundo por el
-	# basis de la carrocería da la dirección del largo, robusto y consistente.
-	var sz: Vector3 = body.mesh.get_aabb().size
-	var local_len := Vector3(0.0, 1.0, 0.0)
-	if sz.x >= sz.y and sz.x >= sz.z:
-		local_len = Vector3(1.0, 0.0, 0.0)
-	elif sz.z >= sz.x and sz.z >= sz.y:
-		local_len = Vector3(0.0, 0.0, 1.0)
-	var ydir: Vector3 = body.transform.basis * local_len
-	var axis := Vector2(ydir.x, ydir.z)
-	if axis.length() < 0.1:
-		axis = _wheel_axis(wheels, center)   # fallback si +Y quedó vertical
+	# EJE DEL LARGO: el tren de ruedas lo define con precisión (las 4 ruedas en las
+	# esquinas). Es el método primario. El "eje más largo del AABB" falla cuando la
+	# malla está rotada dentro de su espacio local (p.ej. el Coupe ~15°), así que
+	# queda solo como fallback si faltan ruedas.
+	var axis := _wheel_axis(wheels)
+	if axis.length() < 0.001:
+		var sz: Vector3 = body.mesh.get_aabb().size
+		var local_len := Vector3(0.0, 1.0, 0.0)
+		if sz.x >= sz.y and sz.x >= sz.z:
+			local_len = Vector3(1.0, 0.0, 0.0)
+		elif sz.z >= sz.x and sz.z >= sz.y:
+			local_len = Vector3(0.0, 0.0, 1.0)
+		var ydir: Vector3 = body.transform.basis * local_len
+		axis = Vector2(ydir.x, ydir.z)
 	if axis.length() < 0.001:
 		return 0.0
 	axis = axis.normalized()
 	var s := _front_sign(body, center, axis)
+	# Override por modelo: en algunos modelos estilizados (frente y trasera casi
+	# idénticos, p.ej. el Coupe) la detección automática queda invertida. Se gira
+	# 180° forzado; como el split de luces se recalcula con la orientación final,
+	# faros y pilotos se invierten JUNTO con la carrocería.
+	for key in FRONT_FLIP:
+		if String(body.name).to_lower().contains(key):
+			s = -s
+			break
 	var fwd := axis * s
 	return atan2(fwd.y, fwd.x) - PI * 0.5
 
@@ -189,15 +223,29 @@ func _front_sign(body: MeshInstance3D, center: Vector3, axis: Vector2) -> float:
 	return 1.0
 
 
-## Eje principal de las 4 ruedas ASIGNADAS a este auto (dirección del largo).
-func _wheel_axis(wheels: Array, center: Vector3) -> Vector2:
+## Eje principal (dirección del LARGO) de las ruedas asignadas, vía PCA medido
+## desde el CENTROIDE de las ruedas (translation-invariant). Devuelve (0,0) si
+## hay menos de 3 ruedas (entonces _front_yaw usa el fallback del AABB).
+func _wheel_axis(wheels: Array) -> Vector2:
+	# Centroide de las ruedas.
+	var c := Vector2.ZERO
+	var n := 0
+	for w in wheels:
+		var mi := w as MeshInstance3D
+		if mi == null:
+			continue
+		c += Vector2(mi.position.x, mi.position.z)
+		n += 1
+	if n < 3:
+		return Vector2.ZERO
+	c /= float(n)
 	var sxx := 0.0; var szz := 0.0; var sxz := 0.0
 	for w in wheels:
 		var mi := w as MeshInstance3D
 		if mi == null:
 			continue
-		var dx: float = mi.position.x - center.x
-		var dz: float = mi.position.z - center.z
+		var dx: float = mi.position.x - c.x
+		var dz: float = mi.position.z - c.y
 		sxx += dx * dx; szz += dz * dz; sxz += dx * dz
 	var theta := 0.5 * atan2(2.0 * sxz, sxx - szz)
 	# Asegurar el eje de MAYOR varianza (el LARGO del auto, no el ancho): si la
@@ -210,13 +258,73 @@ func _wheel_axis(wheels: Array, center: Vector3) -> Vector2:
 	return Vector2(cos(theta), sin(theta))
 
 
-## Convierte la superficie de luces del modelo en EMISIVA (forma y color reales).
-func _make_lights_emissive(body_mi: MeshInstance3D) -> void:
+## Separa la superficie de luces del modelo en FRENTE (faros, +Z) y ATRÁS
+## (pilotos, -Z) según el eje del auto, y crea una malla de 2 superficies: faros
+## blancos y pilotos ROJOS forzados. Así los pilotos son siempre rojos aunque la
+## textura del modelo los tenga claros. Oculta la superficie de luces original.
+func _split_car_lights(body_mi: MeshInstance3D, pivot: Node3D) -> void:
 	if body_mi == null:
 		return
 	var li := _lights_surface(body_mi)
-	if li >= 0:
-		body_mi.set_surface_override_material(li, _lights_mat)
+	if li < 0:
+		return
+	var arr: Array = body_mi.mesh.surface_get_arrays(li)
+	var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var norms: PackedVector3Array = arr[Mesh.ARRAY_NORMAL] if arr[Mesh.ARRAY_NORMAL] != null else PackedVector3Array()
+	var uvs: PackedVector2Array = arr[Mesh.ARRAY_TEX_UV] if arr[Mesh.ARRAY_TEX_UV] != null else PackedVector2Array()
+	var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+
+	# Transform a espacio FINAL del auto (frente = +Z) para clasificar triángulos.
+	var m: Transform3D = pivot.transform * body_mi.transform
+	var front := _new_lbuf()
+	var back := _new_lbuf()
+	var tri_count: int = (idx.size() if idx.size() > 0 else verts.size()) / 3
+	for tri in range(tri_count):
+		var a: int; var b2: int; var c: int
+		if idx.size() > 0:
+			a = idx[tri * 3]; b2 = idx[tri * 3 + 1]; c = idx[tri * 3 + 2]
+		else:
+			a = tri * 3; b2 = tri * 3 + 1; c = tri * 3 + 2
+		var fz: float = (m * ((verts[a] + verts[b2] + verts[c]) / 3.0)).z
+		var t: Dictionary = front if fz >= 0.0 else back
+		for vi in [a, b2, c]:
+			t["v"].append(verts[vi])
+			if norms.size() > 0:
+				t["n"].append(norms[vi])
+			if uvs.size() > 0:
+				t["u"].append(uvs[vi])
+
+	var am := ArrayMesh.new()
+	_commit_lbuf(am, front, _headlight_mat)
+	_commit_lbuf(am, back, _taillight_mat)
+	if am.get_surface_count() == 0:
+		return
+	var lights := MeshInstance3D.new()
+	lights.name = "CarLights"
+	lights.mesh = am
+	lights.transform = body_mi.transform   # alineada con la geometría original
+	pivot.add_child(lights)
+	# Ocultar la superficie de luces original (la reemplaza la malla split).
+	body_mi.set_surface_override_material(li, _hidden_mat)
+
+
+func _new_lbuf() -> Dictionary:
+	return {"v": PackedVector3Array(), "n": PackedVector3Array(), "u": PackedVector2Array()}
+
+
+func _commit_lbuf(am: ArrayMesh, buf: Dictionary, mat: Material) -> void:
+	var v: PackedVector3Array = buf["v"]
+	if v.is_empty():
+		return
+	var a := []
+	a.resize(Mesh.ARRAY_MAX)
+	a[Mesh.ARRAY_VERTEX] = v
+	if buf["n"].size() == v.size():
+		a[Mesh.ARRAY_NORMAL] = buf["n"]
+	if buf["u"].size() == v.size():
+		a[Mesh.ARRAY_TEX_UV] = buf["u"]
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a)
+	am.surface_set_material(am.get_surface_count() - 1, mat)
 
 
 ## Copia un MeshInstance3D (malla + materiales + transform) dentro de `parent`,

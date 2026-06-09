@@ -121,8 +121,13 @@ const float DOF_M_TO_D         = 0.5;    // mapea profundidad_foco_m a toleranci
 // un buen proxy de distancia SIN leer depth (que era la mitad del costo).
 // El muestreo lee niveles de MIPMAP borrosos (textureLod), asi pocas muestras
 // dan un halo suave y continuo. ~12 fetches (antes 168).
-const float HALO_MAX_R_PX        = 72.0;  // radio del halo a intensity=1, brillo pleno
-const int   HALO_SAMPLES         = 14;    // muestras en espiral (mips dan la suavidad)
+// Tamaño RELATIVO a la resolución (fracción del alto de pantalla), NO en píxeles
+// fijos. En el Quest la resolución por ojo (~2000px) triplica la del preview de
+// escritorio (~650px); con un radio en px fijo el halo quedaba diminuto (~3°)
+// y casi invisible en el visor. Como fracción del alto, el halo conserva el
+// MISMO tamaño angular en ambos. (Auditoría: "halos no se ven en el visor".)
+const float HALO_MAX_R_FRAC      = 0.11;  // radio del halo a intensity=1 (frac. del alto)
+const int   HALO_SAMPLES         = 20;    // +muestras: menos granulado si fallan los mips
 // Un UNICO anillo difractivo suave (gaussiano), no oscilacion -> sin bandas negras.
 const float HALO_RING_POS        = 0.70;
 const float HALO_RING_WIDTH      = 0.18;
@@ -132,7 +137,7 @@ const float HALO_PUPIL_DILATION_GAIN = 1.7;
 // === Starburst (rediseño Quest 3: mipmaps + variacion + sin depth) ===
 // Largo del rayo en px a intensity=1, modulado por brillo de fuente. Rayos con
 // longitud/intensidad/angulo variados por hash (sin simetria mecanica).
-const float STARBURST_MAX_LEN_PX = 110.0;
+const float STARBURST_MAX_LEN_FRAC = 0.17;  // largo del rayo (fracción del alto)
 const int   STARBURST_STEPS      = 8;    // bajado de 12: el starburst corre en TODA
 
 
@@ -230,7 +235,8 @@ vec3 halo_rings(vec2 uv, vec2 texel, float intensity, float pupil_dilation,
 	}
 	float pupil = clamp(pupil_dilation, 0.0, 1.0);
 	float scale = mix(1.0, HALO_PUPIL_DILATION_GAIN, pupil);
-	float r_max = HALO_MAX_R_PX * intensity * scale;   // radio del halo en px (sin depth)
+	float h_px = 1.0 / texel.y;                         // alto de pantalla en px
+	float r_max = HALO_MAX_R_FRAC * h_px * intensity * scale;   // radio relativo a la resolución
 	if (r_max < 1.5) {
 		return vec3(0.0);
 	}
@@ -295,6 +301,8 @@ vec3 starburst(vec2 uv, vec2 texel, float intensity, float num_rays, mat4 inv_pr
 	}
 	float inv_above = 1.0 / max(1.0 - halo_threshold, 0.001);
 	float pi2 = 6.28318530718;
+	float h_px = 1.0 / texel.y;                         // alto de pantalla en px
+	float max_len = STARBURST_MAX_LEN_FRAC * h_px;      // largo relativo a la resolución
 	int iray = int(clamp(num_rays, 1.0, 16.0));
 
 	// Gather a lo largo de iray direcciones radiales. Cada rayo: longitud, brillo y
@@ -307,7 +315,7 @@ vec3 starburst(vec2 uv, vec2 texel, float intensity, float num_rays, mat4 inv_pr
 		float h2 = hash12(vec2(float(r) * 3.17, 19.1));
 		float angle = (float(r) + (h - 0.5) * 0.7) / float(iray) * pi2;
 		vec2 dir = vec2(cos(angle), sin(angle));
-		float ray_len_px = STARBURST_MAX_LEN_PX * intensity * mix(0.5, 1.0, h);
+		float ray_len_px = max_len * intensity * mix(0.5, 1.0, h);
 		float ray_gain = mix(0.45, 1.0, h2);
 		if (ray_len_px < 1.0) {
 			continue;
@@ -376,13 +384,21 @@ vec3 astigmatism_streak(vec2 uv, vec2 texel, float magnitude_px, float angle) {
 // en el detalle pero su entorno AMPLIO (mip alto) es oscuro; una superficie
 // iluminada es brillante tambien en el area amplia. Si el area amplia alrededor
 // del pixel es brillante y uniforme, esta sobre una superficie -> suprimir.
-float surface_factor(vec2 uv) {
-	// Promediamos DOS niveles: mip 5 (area amplia ~32px, capta la cebra rayada
-	// completa como zona brillante) y mip 3 (mas local). Tomamos el mayor: si
-	// cualquiera de las dos escalas ve una zona brillante uniforme, es superficie.
-	float a5 = src_brightness(textureLod(screen_texture, uv, 5.0).rgb);
-	float a3 = src_brightness(textureLod(screen_texture, uv, 3.0).rgb);
-	float area = max(a5, a3 * 0.85);
+float surface_factor(vec2 uv, vec2 texel) {
+	// Muestreo del "area amplia" SIN mipmaps: en multiview (Quest) los mipmaps del
+	// backbuffer pueden no generarse, y entonces textureLod() devolvia el nivel 0
+	// (el pixel brillante) como "area" -> el glare se suprimia por completo y los
+	// halos DESAPARECIAN en el visor. Con taps explicitos a nivel 0 el resultado
+	// es identico en escritorio y Quest. (Auditoría: "halos no se ven en el visor".)
+	float h_px = 1.0 / texel.y;
+	float r = 0.035 * h_px;   // radio del muestreo (fraccion del alto, ~consistente)
+	float area = 0.0;
+	for (int i = 0; i < 6; i++) {
+		float a = float(i) * 1.04719755;   // 60°
+		vec2 d = vec2(cos(a), sin(a));
+		area += src_brightness(texture(screen_texture, uv + d * r * texel).rgb);
+	}
+	area /= 6.0;
 	float surf = 1.0 - smoothstep(0.28, 0.50, area);
 	// Excepcion para FUENTES PUNTUALES (faros de autos, farolas): si el pixel
 	// central destaca mucho sobre el area amplia, es un pico de luz, no una
@@ -486,7 +502,7 @@ void fragment() {
 	if (has_halo || has_star || has_astig) {
 		// Supresion de superficies extensas: el glare solo nace de fuentes
 		// puntuales, no de la calzada/cebra iluminada (que de noche satura).
-		float surf = surface_factor(uv);
+		float surf = surface_factor(uv, texel);
 		if (has_halo) {
 			color += halo_rings(uv, texel, halo_amount, halo_extra, INV_PROJECTION_MATRIX) * surf;
 		}
