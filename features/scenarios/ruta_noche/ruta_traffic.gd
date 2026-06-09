@@ -24,6 +24,11 @@ const LIGHTS_TEX := "res://autos/textures/lights.jpg"
 ## casi idénticos). Se les fuerza un giro de 180°. Clave = substring del nombre.
 const FRONT_FLIP := {"coupe": true}
 
+## Modelos que NO se spawnean: su faro delantero está pintado en la textura del
+## cuerpo (sin geometría de luz frontal real), así que de frente no deslumbran.
+## Se excluyen del tráfico hasta resolver esos faros. Clave = substring del nombre.
+const SKIP_MODELS := {"sport": true, "compact": true}
+
 ## Máximo de autos simultáneos (pocos y espaciados).
 @export var max_cars: int = 3
 ## Mitad del largo de la ruta (límite de aparición/desaparición), en metros.
@@ -119,6 +124,16 @@ func _build_templates() -> void:
 			groups[best].append(w)
 
 	for b in bodies:
+		# Saltar los modelos excluidos (faros delanteros pintados, no geométricos).
+		var bname := String(b.name).to_lower()
+		var skip := false
+		for key in SKIP_MODELS:
+			if bname.contains(key):
+				skip = true
+				break
+		if skip:
+			continue
+
 		var car := Node3D.new()
 		car.name = String(b.name).replace(" ", "_")
 		# Recentrar SOLO en X/Z por el centro geométrico de la carrocería (el origen
