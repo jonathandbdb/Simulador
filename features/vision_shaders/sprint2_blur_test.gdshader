@@ -127,7 +127,7 @@ const float DOF_M_TO_D         = 0.5;    // mapea profundidad_foco_m a toleranci
 // y casi invisible en el visor. Como fracción del alto, el halo conserva el
 // MISMO tamaño angular en ambos. (Auditoría: "halos no se ven en el visor".)
 const float HALO_MAX_R_FRAC      = 0.11;  // radio del halo a intensity=1 (frac. del alto)
-const int   HALO_SAMPLES         = 20;    // +muestras: menos granulado si fallan los mips
+const int   HALO_SAMPLES         = 18;    // con glare_excess (mips compensados) alcanza
 // Un UNICO anillo difractivo suave (gaussiano), no oscilacion -> sin bandas negras.
 const float HALO_RING_POS        = 0.70;
 const float HALO_RING_WIDTH      = 0.18;
@@ -138,7 +138,10 @@ const float HALO_PUPIL_DILATION_GAIN = 1.7;
 // Largo del rayo en px a intensity=1, modulado por brillo de fuente. Rayos con
 // longitud/intensidad/angulo variados por hash (sin simetria mecanica).
 const float STARBURST_MAX_LEN_FRAC = 0.17;  // largo del rayo (fracción del alto)
-const int   STARBURST_STEPS      = 8;    // bajado de 12: el starburst corre en TODA
+// Pasos por rayo. El footprint del mip se ata al ESPACIADO entre pasos
+// (cone-tracing), asi el rayo no tiene huecos a ninguna resolucion: con 6
+// pasos en Quest el espaciado es ~31px y el mip cubre ~16px+bilinear.
+const int   STARBURST_STEPS      = 6;
 
 
 float linear_depth_meters(float raw_depth, vec2 uv, mat4 inv_proj) {
@@ -198,6 +201,39 @@ float src_brightness(vec3 c) {
 	return max(c.r, max(c.g, c.b));
 }
 
+// === Energia de glare consciente del nivel de mip ===
+// Problema que resuelve: un faro lejano subtiende ~10-20 px; muestreado a un
+// mip alto su brillo se DILUYE por el promedio del area (un blob de 20px a
+// lod 5 queda en ~0.37) y el umbral duro 0.72 lo descartaba por completo.
+// Por eso en el Quest (buffer ~2200px => lods altos en el gather) los halos
+// solo aparecian con la fuente pegada a la camara y el starburst no se veia.
+// Modelo: el umbral efectivo DECAE con el lod (a mips altos el ambiente
+// nocturno es casi negro: cualquier energia es de una fuente) y el exceso se
+// COMPENSA por la dilucion (~4^lod de area, restauramos 2^(comp*lod) con
+// tope). Invariante clave: a lod 0 esto es EXACTAMENTE la formula anterior
+// (thr = halo_threshold, comp = 1) -> el look validado de cerca no cambia.
+// La pintura vial promediada a mip alto (~0.10-0.18) queda bajo GLARE_FLOOR
+// y ademas surface_factor() la suprime como segunda guarda.
+const float GLARE_THR_DECAY   = 0.35; // thr_eff = halo_threshold * 2^(-decay*lod)
+// Piso del umbral: DEBE quedar por encima del valor en pantalla de las
+// superficies mate de la escena (pintura vial 0.45 unshaded ~0.27 con
+// Filmic 0.6) para que NUNCA generen glare a ningun lod. Con 0.32, las
+// fuentes chicas dejan de contribuir alrededor de lod ~4.5 (footprint
+// ~24-48px) — suficiente para faros reales a 10-80 m; solo una fuente
+// puntual minuscula y lejisima pierde su halo (clinicamente irrelevante).
+const float GLARE_FLOOR       = 0.32;
+const float GLARE_ENERGY_COMP = 0.7;  // restaura 2^(comp*lod) de la dilucion
+const float GLARE_COMP_MAX    = 14.0; // tope de compensacion
+const float GLARE_EXCESS_CAP  = 1.2;  // tope por muestra: limita tambien la
+                                      // varianza del dither (sin "arenilla")
+
+float glare_excess(float lum, float lod) {
+	float thr = max(halo_threshold * exp2(-GLARE_THR_DECAY * lod), GLARE_FLOOR);
+	float excess = max(lum - thr, 0.0) / max(1.0 - thr, 0.001);
+	float comp = min(exp2(GLARE_ENERGY_COMP * lod), GLARE_COMP_MAX);
+	return min(excess * comp, GLARE_EXCESS_CAP);
+}
+
 // True si el uv cae dentro de la mascara del objeto de lectura (libro/celular).
 // Esos objetos son TARGETS DE LECTURA, no fuentes de luz: aunque su pantalla
 // supere el umbral de brillo, NO deben generar halo ni starburst (igual que la
@@ -240,7 +276,6 @@ vec3 halo_rings(vec2 uv, vec2 texel, float intensity, float pupil_dilation,
 	if (r_max < 1.5) {
 		return vec3(0.0);
 	}
-	float inv_above = 1.0 / max(1.0 - halo_threshold, 0.001);
 	vec3 night_tint = mix(halo_tint, vec3(0.85, 0.95, 1.1), pupil * 0.6);
 	float ring_amt = clamp(intensity, 0.0, 1.0);
 
@@ -248,13 +283,17 @@ vec3 halo_rings(vec2 uv, vec2 texel, float intensity, float pupil_dilation,
 	// granular). Cada muestra lee un nivel de MIPMAP proporcional al radio: el
 	// borde del halo usa mips mas borrosos -> suave y barato.
 	float ga = 2.39996323;
-	float rot = hash12(floor(uv / (texel * 4.0))) * 6.28318530718;
+	// Dither por bloque de 2px (mas fino que 4px: menos "arenilla" en el borde)
+	// + jitter RADIAL con el mismo hash: las muestras de pixeles vecinos caen
+	// en radios distintos y el rim del halo se integra suave.
+	float dith = hash12(floor(uv / (texel * 2.0)));
+	float rot = dith * 6.28318530718;
 	float texel_px = 1.0 / texel.x;   // ancho en px para estimar el nivel de mip
 
 	vec3 halo = vec3(0.0);
 	float wsum = 0.0;
 	for (int s = 0; s < HALO_SAMPLES; s++) {
-		float fs = (float(s) + 0.5) / float(HALO_SAMPLES);
+		float fs = (float(s) + dith) / float(HALO_SAMPLES);
 		float rn = sqrt(fs);                 // posicion radial 0..1 (densa al centro)
 		float ang = float(s) * ga + rot;
 		vec2 dir = vec2(cos(ang), sin(ang));
@@ -267,7 +306,10 @@ vec3 halo_rings(vec2 uv, vec2 texel, float intensity, float pupil_dilation,
 		float lod = clamp(log2(max(step_px, 1.0)) - 1.0, 0.0, 5.0);
 		vec3 c = textureLod(screen_texture, suv, lod).rgb;
 		float lum = src_brightness(c);
-		float excess = max(lum - halo_threshold, 0.0) * inv_above;
+		// Umbral/energia consciente del lod: una fuente CHICA y lejana diluida
+		// por el mip sigue contribuyendo (antes el umbral duro la descartaba y
+		// el halo solo aparecia con la fuente pegada a la camara).
+		float excess = glare_excess(lum, lod);
 		// Perfil radial CONTINUO: glow gaussiano + un unico anillo suave (gaussiano).
 		float glow = exp(-rn * rn * 3.0);
 		float d_ring = (rn - HALO_RING_POS) / HALO_RING_WIDTH;
@@ -284,7 +326,8 @@ vec3 halo_rings(vec2 uv, vec2 texel, float intensity, float pupil_dilation,
 	float mn = min(halo_col.r, min(halo_col.g, halo_col.b));
 	float sat = (mx - mn) / max(mx, 0.001);
 	vec3 tint = mix(night_tint, vec3(1.0), clamp(sat, 0.0, 1.0));
-	return halo_col * intensity * tint * 1.6;   // ganancia: visible tras promediar
+	return halo_col * intensity * tint * 1.2;   // ganancia: visible tras promediar
+	// (1.6 -> 1.2: glare_excess compensa la dilucion, la ganancia vieja saturaba)
 }
 
 // Starburst angular (reescrito). Los rayos se EXTIENDEN desde la fuente hacia el
@@ -299,7 +342,6 @@ vec3 starburst(vec2 uv, vec2 texel, float intensity, float num_rays, mat4 inv_pr
 	if (intensity < 0.01 || num_rays < 1.0) {
 		return vec3(0.0);
 	}
-	float inv_above = 1.0 / max(1.0 - halo_threshold, 0.001);
 	float pi2 = 6.28318530718;
 	float h_px = 1.0 / texel.y;                         // alto de pantalla en px
 	float max_len = STARBURST_MAX_LEN_FRAC * h_px;      // largo relativo a la resolución
@@ -320,20 +362,36 @@ vec3 starburst(vec2 uv, vec2 texel, float intensity, float num_rays, mat4 inv_pr
 		if (ray_len_px < 1.0) {
 			continue;
 		}
+		// CONE-TRACING: el footprint del mip se ata al espaciado entre pasos.
+		// Antes el lod era casi 0 (footprint ~3px) con pasos cada 12-23px en el
+		// buffer del Quest -> casi todos los pasos PERDIAN la fuente de ~5-10px
+		// y el destello era invisible en el visor (y con "cuentas" en PC).
+		// Con footprint = espaciado/2 el rayo es continuo a cualquier resolucion.
+		float spacing_px = ray_len_px / float(STARBURST_STEPS);
+		float lod_base = clamp(log2(max(spacing_px, 1.0)) - 0.5, 0.0, 4.0);
+		// Jitter de FASE por pixel: corre las posiciones de los pasos a lo
+		// largo del rayo en cada pixel. Sin esto, cada paso deja un "blob"
+		// discreto y el rayo se ve como cuentas (beading); con la fase
+		// jitterada los pixeles vecinos muestrean posiciones distintas y el
+		// trazo se integra continuo.
+		float phase = hash12(uv * vec2(521.7, 233.9) + vec2(float(r)));
 		for (int s = 1; s <= STARBURST_STEPS; s++) {
-			float t = float(s) / float(STARBURST_STEPS);
+			float t = (float(s) - phase) / float(STARBURST_STEPS);
 			float step_px = t * ray_len_px;
 			vec2 suv = uv + dir * texel * step_px;
 			if (is_reading_target(suv)) {
 				continue;
 			}
-			// Mip BAJO: el rayo debe ser fino, un mip alto lo engorda. Solo los
-			// pasos muy lejanos usan un nivel leve para tapar huecos del muestreo.
-			float lod = clamp(log2(max(step_px, 1.0)) - 4.0, 0.0, 1.5);
+			// Taper: cerca de la fuente (t chico) el footprint baja -> rayo FINO
+			// en la base; hacia la punta sube -> cobertura sin huecos. Los rayos
+			// reales tambien se ensanchan levemente al alejarse de la fuente.
+			float lod = max(lod_base - (1.0 - t) * 0.7, 0.0);
 			vec3 c = textureLod(screen_texture, suv, lod).rgb;
 			float lum = src_brightness(c);
-			if (lum > halo_threshold) {
-				float strength = clamp((lum - halo_threshold) * inv_above, 0.0, 1.0);
+			// Energia consciente del lod (sin gate duro): la fuente diluida por
+			// el mip sigue alimentando el rayo.
+			float strength = clamp(glare_excess(lum, lod), 0.0, 1.0);
+			if (strength > 0.0) {
 				float core = strength * strength;           // solo el nucleo -> rayo fino
 				float falloff = pow(1.0 - t, 1.5);           // degrade suave hacia la punta
 				accum += clamp(c, 0.0, 1.0) * (core * falloff * ray_gain);

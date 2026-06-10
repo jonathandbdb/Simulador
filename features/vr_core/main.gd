@@ -56,6 +56,8 @@ const SCENARIOS := {
 		# Umbral alto: de dia solo la lampara de escritorio (muy brillante) genera
 		# halo; la pagina iluminada no debe disparar el efecto.
 		"halo_threshold": 0.9,
+		# Foveation normal: el test de lectura necesita nitidez central y media.
+		"foveation": 2,
 	},
 	"ruta_noche": {
 		"scene":     "res://features/scenarios/ruta_noche/ruta_noche.tscn",
@@ -63,6 +65,9 @@ const SCENARIOS := {
 		"env":       "night",
 		"show_book": false,
 		"halo_threshold": 0.72,
+		# Foveation agresiva: de noche el post-proceso de glare es fill-rate
+		# bound y la periferia oscura tolera la perdida de resolucion.
+		"foveation": 3,
 	},
 }
 
@@ -521,6 +526,12 @@ func _apply_scenario_config(cfg: Dictionary) -> void:
 	# Entorno visual (cielo, luz solar).
 	var env_id: String = cfg.get("env", "day")
 	_apply_environment(NIGHT_PARAMS if env_id == "night" else DAY_PARAMS)
+
+	# Foveation por escenario (runtime-settable en OpenXR). foveation_dynamic
+	# del project.godot queda como techo dinamico; aca fijamos el nivel base.
+	if xr_interface != null and xr_interface.is_initialized() \
+			and "foveation_level" in xr_interface:
+		xr_interface.foveation_level = int(cfg.get("foveation", 2))
 
 	# Libro: visible solo en escenas de dia/consultorio. Ademas se detiene su
 	# _process cuando no se usa, para que no pelee por el uniform book_distance_m

@@ -91,14 +91,17 @@ func _make_environment(night: bool) -> Environment:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.08, 0.09, 0.14) if night else Color(0.6, 0.7, 0.85)
 	env.ambient_light_energy = 0.35 if night else 0.5
+	# Alineado con NIGHT_PARAMS/DAY_PARAMS de main.gd: el banco de QA debe
+	# reproducir EXACTAMENTE las condiciones del visor (antes validaba una
+	# escena mas facil: AGX, glow 1.2, threshold 0.55 — y el Quest fallaba).
 	env.glow_enabled = night
-	env.glow_intensity = 0.8
+	env.glow_intensity = 0.6
 	env.glow_strength = 1.0
-	env.glow_bloom = 0.15
-	env.glow_hdr_threshold = 1.2
-	env.tonemap_mode = Environment.TONE_MAPPER_AGX
-	env.tonemap_exposure = 0.5 if night else 0.9
-	env.tonemap_white = 8.0
+	env.glow_bloom = 0.1
+	env.glow_hdr_threshold = 1.6
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC if night else Environment.TONE_MAPPER_AGX
+	env.tonemap_exposure = 0.6 if night else 1.0
+	env.tonemap_white = 8.0 if night else 6.0
 	return env
 
 
@@ -121,7 +124,8 @@ func _setup_camera_and_post_process() -> void:
 	_post_process_quad.extra_cull_margin = 16384.0
 	_shader_mat = ShaderMaterial.new()
 	_shader_mat.shader = POST_PROCESS_SHADER
-	_shader_mat.set_shader_parameter("halo_threshold", 0.55 if _night_mode else 0.9)
+	# 0.72 de noche = mismo umbral que ruta_noche en main.gd SCENARIOS.
+	_shader_mat.set_shader_parameter("halo_threshold", 0.72 if _night_mode else 0.9)
 	_post_process_quad.material_override = _shader_mat
 	_camera.add_child(_post_process_quad)
 
@@ -166,7 +170,8 @@ func _spawn_emissive_sphere(pos: Vector3, distance_m: float, idx: int) -> void:
 	mat.albedo_color = col
 	mat.emission_enabled = true
 	mat.emission = col
-	mat.emission_energy_multiplier = 10.0
+	# 24 = car_light_emission de ruta_traffic.gd (mismas fuentes que el visor).
+	mat.emission_energy_multiplier = 24.0
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	sphere.material_override = mat
 	node.add_child(sphere)
@@ -272,7 +277,7 @@ func _apply_lens_by_index(idx: int) -> void:
 func _toggle_night() -> void:
 	_night_mode = not _night_mode
 	_world_env.environment = _make_environment(_night_mode)
-	_shader_mat.set_shader_parameter("halo_threshold", 0.55 if _night_mode else 0.9)
+	_shader_mat.set_shader_parameter("halo_threshold", 0.72 if _night_mode else 0.9)
 	_refresh_hud()
 
 

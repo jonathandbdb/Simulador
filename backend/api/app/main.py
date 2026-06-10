@@ -1,11 +1,13 @@
 """FastAPI app entry point."""
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlmodel import Session
@@ -53,6 +55,9 @@ async def _redirect_or_default_handler(request: Request, exc: HTTPException):
 app.include_router(public_router)
 app.include_router(admin_router)
 app.include_router(files_router)
+
+# Estaticos del panel admin (CSS, fuentes, favicon) — sin CDNs externos.
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 
 @app.on_event("startup")

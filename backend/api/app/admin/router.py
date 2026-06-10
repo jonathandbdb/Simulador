@@ -112,6 +112,11 @@ def dashboard(request: Request, admin: AdminDep, session: SessionDep):
     recent_logs = session.exec(
         select(UpdateLog).order_by(desc(UpdateLog.created_at)).limit(20)
     ).all()
+    # Aviso de seguridad: refleja la config del entorno (no el hash en BD).
+    # Suficiente porque el seed crea el admin con admin_default_pass y no
+    # hay UI de cambio de contrasena.
+    insecure_pass = settings.admin_default_pass == "admin123"
+    insecure_jwt = settings.jwt_secret == "dev-jwt-secret-change-me"
     return render(
         request, "dashboard.html",
         admin_user=admin,
@@ -121,6 +126,8 @@ def dashboard(request: Request, admin: AdminDep, session: SessionDep):
         active_version=active_version,
         active_catalog=active_catalog,
         recent_logs=recent_logs,
+        insecure_pass=insecure_pass,
+        insecure_jwt=insecure_jwt,
     )
 
 
@@ -221,14 +228,24 @@ def lenses_list(request: Request, admin: AdminDep, session: SessionDep):
             "created_at": c.created_at,
             "lens_count": count,
         })
+    # Esqueleto con el esquema clinico actual (10 params, ver defaults/lentes.json).
     default_json = json.dumps(
         {"version": "1.0.0", "catalogo": [
-            {"id": "monofocal_default", "tipo": "monofocal",
-             "params": {"halo_intensity": 0.0, "contrast_loss": 0.0,
-                        "blur_near": 0.6, "blur_medium": 0.0, "blur_far": 0.0,
-                        "focal_distance_m": 6.0}}
+            {"id": "monofocal_default", "nombre": "Monofocal", "descripcion": "",
+             "params": {
+                 "foco_lejos_m":       {"default": 6.0,  "min": 0.0, "max": 20.0},
+                 "foco_intermedio_m":  {"default": 0.0,  "min": 0.0, "max": 20.0},
+                 "foco_cerca_m":       {"default": 0.0,  "min": 0.0, "max": 20.0},
+                 "profundidad_foco_m": {"default": 1.2,  "min": 0.1, "max": 5.0},
+                 "desenfoque_max":     {"default": 0.9,  "min": 0.0, "max": 1.0},
+                 "halo_intensity":     {"default": 0.03, "min": 0.0, "max": 1.0},
+                 "halo_extra_rings":   {"default": 0.0,  "min": 0.0, "max": 1.0},
+                 "contrast_loss":      {"default": 0.0,  "min": 0.0, "max": 0.6},
+                 "destello_intensity": {"default": 0.0,  "min": 0.0, "max": 1.0},
+                 "destello_rayos":     {"default": 0.0,  "min": 0.0, "max": 16.0},
+             }}
         ]},
-        indent=2,
+        indent=2, ensure_ascii=False,
     )
     # Catalogo activo serializado para alimentar el editor visual.
     active = next((c for c in catalogs_raw if c.is_active), None)
