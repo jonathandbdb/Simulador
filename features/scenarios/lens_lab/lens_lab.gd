@@ -176,6 +176,10 @@ func _spawn_emissive_sphere(pos: Vector3, distance_m: float, idx: int) -> void:
 	sphere.material_override = mat
 	node.add_child(sphere)
 
+	# Glare procedural anclado a la fuente (mismo sistema que ruta_noche;
+	# el halo/starburst ya no se generan en el post-proceso screen-space).
+	GlareSource.attach(node, Vector3.ZERO, col, 1.0)
+
 	# Etiqueta con la distancia para identificar cada luz en el HUD.
 	var lbl := Label3D.new()
 	lbl.text = "%.0f m" % distance_m
@@ -307,6 +311,8 @@ func _toggle_pupil() -> void:
 func _toggle_post_process() -> void:
 	_post_process_on = not _post_process_on
 	_post_process_quad.visible = _post_process_on
+	# Los billboards de glare son parte de "la lente": se ocultan juntos.
+	get_tree().call_group("glare_billboards", "set_visible", _post_process_on)
 	_refresh_hud()
 
 
@@ -320,7 +326,14 @@ func _on_vision_state_changed(eye: String, params: Dictionary) -> void:
 	for key in SHADER_PARAM_MAP.keys():
 		if params.has(key):
 			var uniform_name: String = SHADER_PARAM_MAP[key][eye_idx]
-			_shader_mat.set_shader_parameter(uniform_name, float(params[key]))
+			var value := float(params[key])
+			# El glare (halo/starburst) ya NO corre en el post-proceso: en el
+			# Quest los mips del backbuffer no se generan y el gather fallaba.
+			# Lo dibujan los billboards GlareSource via shader globals.
+			if key in ["halo_intensity", "halo_extra_rings", "destello_intensity", "destello_rayos"]:
+				value = 0.0
+			_shader_mat.set_shader_parameter(uniform_name, value)
+	GlareSource.set_eye_globals(eye, params, true)
 	_refresh_hud()
 
 

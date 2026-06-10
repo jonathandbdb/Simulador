@@ -49,6 +49,41 @@ common/physics_ticks_per_second=90
 rendering_device/driver.windows="d3d12"
 textures/vram_compression/import_etc2_astc=true
 
+[shader_globals]
+
+glare_halo_l={
+"type": "float",
+"value": 0.0
+}
+glare_halo_r={
+"type": "float",
+"value": 0.0
+}
+glare_pupil_l={
+"type": "float",
+"value": 0.0
+}
+glare_pupil_r={
+"type": "float",
+"value": 0.0
+}
+glare_star_l={
+"type": "float",
+"value": 0.0
+}
+glare_star_r={
+"type": "float",
+"value": 0.0
+}
+glare_rays_l={
+"type": "float",
+"value": 0.0
+}
+glare_rays_r={
+"type": "float",
+"value": 0.0
+}
+
 [xr]
 
 openxr/enabled=true

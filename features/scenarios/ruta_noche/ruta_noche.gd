@@ -287,6 +287,13 @@ func _spawn_lamp_side(lamp_mesh: ArrayMesh, suffix: String, pos: Vector3,
 	mi.scale = Vector3.ONE * scale_factor
 	root.add_child(mi)
 
+	# Glare procedural en cada cabezal (TODAS las farolas, tambien las
+	# emisivas sin SpotLight): el halo/starburst por lente vive aca, no en
+	# el post-proceso (los mips del backbuffer no existen en Quest).
+	for head_local in _head_local_positions:
+		GlareSource.attach(root, head_local * scale_factor,
+				Color(1.0, 0.95, 0.82), 0.85)
+
 	if not with_light:
 		return
 	for head_local in _head_local_positions:

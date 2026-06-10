@@ -367,12 +367,18 @@ func _on_vision_state_changed(eye: String, params: Dictionary) -> void:
 		if params.has(key):
 			var uniform_name: String = SHADER_PARAM_MAP[key][eye_idx]
 			var value := float(params[key])
-			# Si los halos estan desactivados en esta escena, forzamos su
-			# intensidad a 0 sin alterar el catalogo (se restaura al reactivar).
-			if key in ["halo_intensity", "halo_extra_rings", "destello_intensity", "destello_rayos"] \
-					and not halos_enabled:
+			# El glare (halo/starburst) ya NO corre en el post-proceso: en el
+			# Quest (multiview) los mips del backbuffer no se generan y el
+			# gather screen-space fallaba (solo granulado). Lo dibujan los
+			# billboards GlareSource (glare_billboard.gdshader) via shader
+			# globals. Ademas el pase full-screen queda mucho mas barato.
+			if key in ["halo_intensity", "halo_extra_rings", "destello_intensity", "destello_rayos"]:
 				value = 0.0
 			mat.set_shader_parameter(uniform_name, value)
+
+	# Globals per-eye para los billboards de glare. halos_enabled del
+	# escenario (consultorio de dia = off) los fuerza a 0 sin tocar catalogo.
+	GlareSource.set_eye_globals(eye, params, halos_enabled)
 
 	_update_lens_hud()
 
@@ -544,6 +550,8 @@ func _apply_scenario_config(cfg: Dictionary) -> void:
 func _toggle_post_process() -> void:
 	_post_process_enabled = not _post_process_enabled
 	post_process_quad.visible = _post_process_enabled
+	# Los billboards de glare son parte de "la lente": se ocultan juntos.
+	get_tree().call_group("glare_billboards", "set_visible", _post_process_enabled)
 	var tag := "ON" if _post_process_enabled else "OFF (sin lentes)"
 	print("main: post-process ", tag)
 	_update_lens_hud_with_toggle()

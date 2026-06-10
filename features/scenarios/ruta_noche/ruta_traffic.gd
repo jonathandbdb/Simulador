@@ -291,8 +291,13 @@ func _split_car_lights(body_mi: MeshInstance3D, pivot: Node3D) -> void:
 
 	# Transform a espacio FINAL del auto (frente = +Z) para clasificar triángulos.
 	var m: Transform3D = pivot.transform * body_mi.transform
+	var pivot_inv: Transform3D = pivot.transform.inverse()
 	var front := _new_lbuf()
 	var back := _new_lbuf()
+	# Centroides por cluster (frente/atrás × derecha/izquierda en espacio final)
+	# para anclar un billboard de glare a CADA luz fisica del auto.
+	var csum: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
+	var cn: Array[int] = [0, 0, 0, 0]
 	var tri_count: int = (idx.size() if idx.size() > 0 else verts.size()) / 3
 	for tri in range(tri_count):
 		var a: int; var b2: int; var c: int
@@ -300,8 +305,14 @@ func _split_car_lights(body_mi: MeshInstance3D, pivot: Node3D) -> void:
 			a = idx[tri * 3]; b2 = idx[tri * 3 + 1]; c = idx[tri * 3 + 2]
 		else:
 			a = tri * 3; b2 = tri * 3 + 1; c = tri * 3 + 2
-		var fz: float = (m * ((verts[a] + verts[b2] + verts[c]) / 3.0)).z
-		var t: Dictionary = front if fz >= 0.0 else back
+		var centroid: Vector3 = (verts[a] + verts[b2] + verts[c]) / 3.0
+		var fpos: Vector3 = m * centroid
+		var is_front: bool = fpos.z >= 0.0
+		var t: Dictionary = front if is_front else back
+		var ci: int = (0 if is_front else 2) + (0 if fpos.x >= 0.0 else 1)
+		# Acumular en espacio del PIVOT (donde se cuelga el billboard).
+		csum[ci] += pivot_inv * fpos
+		cn[ci] += 1
 		for vi in [a, b2, c]:
 			t["v"].append(verts[vi])
 			if norms.size() > 0:
@@ -321,6 +332,17 @@ func _split_car_lights(body_mi: MeshInstance3D, pivot: Node3D) -> void:
 	pivot.add_child(lights)
 	# Ocultar la superficie de luces original (la reemplaza la malla split).
 	body_mi.set_surface_override_material(li, _hidden_mat)
+
+	# Billboards de glare procedural: faros blancos (frente) deslumbran mas
+	# que los pilotos rojos. Uno por cluster con triangulos suficientes.
+	for ci in range(4):
+		if cn[ci] < 2:
+			continue
+		var pos: Vector3 = csum[ci] / float(cn[ci])
+		if ci < 2:
+			GlareSource.attach(pivot, pos, Color(1.0, 0.98, 0.92), 1.0)
+		else:
+			GlareSource.attach(pivot, pos, Color(1.0, 0.06, 0.04), 0.7)
 
 
 func _new_lbuf() -> Dictionary:
