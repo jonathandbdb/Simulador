@@ -29,6 +29,11 @@ MCPGameInspector="*res://addons/godot_mcp/mcp_game_inspector_service.gd"
 [display]
 
 window/vsync/vsync_mode=0
+window/size/viewport_width.tablet=1280
+window/size/viewport_height.tablet=800
+window/stretch/mode.tablet="canvas_items"
+window/stretch/aspect.tablet="expand"
+window/handheld/orientation.tablet=4
 
 [editor_plugins]
 

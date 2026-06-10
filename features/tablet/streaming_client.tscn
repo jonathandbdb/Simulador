@@ -1,263 +1,455 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://features/tablet/streaming_client.gd" id="1_client"]
+[ext_resource type="Texture2D" path="res://assets/icons/ui/eye.svg" id="2_eye"]
+[ext_resource type="Texture2D" path="res://assets/icons/ui/sliders.svg" id="3_sliders"]
+[ext_resource type="Texture2D" path="res://assets/icons/ui/chevron_down.svg" id="4_chevron"]
+[ext_resource type="Texture2D" path="res://assets/icons/ui/moon.svg" id="5_moon"]
 
-[sub_resource type="StyleBoxFlat" id="StyleBox_bg"]
-bg_color = Color(0.08, 0.09, 0.12, 1)
-
-[sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
-bg_color = Color(0.13, 0.15, 0.19, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.25, 0.28, 0.34, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-content_margin_left = 14.0
-content_margin_top = 14.0
-content_margin_right = 14.0
-content_margin_bottom = 14.0
-
-[sub_resource type="StyleBoxFlat" id="StyleBox_stream"]
-bg_color = Color(0.03, 0.04, 0.06, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.2, 0.22, 0.28, 1)
-corner_radius_top_left = 6
-corner_radius_top_right = 6
-corner_radius_bottom_right = 6
-corner_radius_bottom_left = 6
-
-[sub_resource type="StyleBoxFlat" id="StyleBox_button"]
-bg_color = Color(0.18, 0.21, 0.27, 1)
-corner_radius_top_left = 6
-corner_radius_top_right = 6
-corner_radius_bottom_right = 6
-corner_radius_bottom_left = 6
-content_margin_left = 10.0
-content_margin_top = 8.0
-content_margin_right = 10.0
-content_margin_bottom = 8.0
-
-[sub_resource type="Theme" id="Theme_app"]
-default_font_size = 16
-Button/styles/normal = SubResource("StyleBox_button")
-Panel/styles/panel = SubResource("StyleBox_panel")
+[sub_resource type="ButtonGroup" id="ButtonGroup_eye"]
 
 [node name="TabletClient" type="Control"]
+layout_mode = 3
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-theme = SubResource("Theme_app")
 script = ExtResource("1_client")
 
 [node name="Background" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 
-[node name="Margin" type="MarginContainer" parent="."]
+[node name="ConnectScreen" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-theme_override_constants/margin_left = 12
-theme_override_constants/margin_top = 12
-theme_override_constants/margin_right = 12
-theme_override_constants/margin_bottom = 12
 
-[node name="HBox" type="HBoxContainer" parent="Margin"]
+[node name="VBox" type="VBoxContainer" parent="ConnectScreen"]
+custom_minimum_size = Vector2(560, 0)
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="StreamPanel" type="PanelContainer" parent="Margin/HBox"]
+[node name="LogoIcon" type="TextureRect" parent="ConnectScreen/VBox"]
+custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
-size_flags_horizontal = 3
-size_flags_stretch_ratio = 2.4
+size_flags_horizontal = 4
+texture = ExtResource("2_eye")
+expand_mode = 1
+stretch_mode = 5
 
-[node name="VBox" type="VBoxContainer" parent="Margin/HBox/StreamPanel"]
+[node name="Title" type="Label" parent="ConnectScreen/VBox"]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_type_variation = &"TitleLabel"
+horizontal_alignment = 1
+text = "Simulador IOL"
 
-[node name="HeaderLabel" type="Label" parent="Margin/HBox/StreamPanel/VBox"]
+[node name="Subtitle" type="Label" parent="ConnectScreen/VBox"]
 layout_mode = 2
-text = "Vista del visor"
-theme_override_font_sizes/font_size = 18
-theme_override_colors/font_color = Color(0.85, 0.9, 1, 1)
+theme_type_variation = &"SubtitleLabel"
+horizontal_alignment = 1
+text = "Control para consultorio oftalmológico"
 
-[node name="TopBar" type="HBoxContainer" parent="Margin/HBox/StreamPanel/VBox"]
+[node name="Spacer1" type="Control" parent="ConnectScreen/VBox"]
+custom_minimum_size = Vector2(0, 12)
+layout_mode = 2
+
+[node name="DiscoveredTitle" type="Label" parent="ConnectScreen/VBox"]
+layout_mode = 2
+theme_type_variation = &"SectionLabel"
+text = "Visores detectados"
+
+[node name="DiscoveredList" type="VBoxContainer" parent="ConnectScreen/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="HostLabel" type="Label" parent="Margin/HBox/StreamPanel/VBox/TopBar"]
+[node name="ConnectStatusLabel" type="Label" parent="ConnectScreen/VBox"]
 layout_mode = 2
-text = "IP visor:"
-theme_override_colors/font_color = Color(0.7, 0.75, 0.85, 1)
+theme_type_variation = &"HintLabel"
+horizontal_alignment = 1
+text = "Buscando visores en la red..."
 
-[node name="HostEdit" type="LineEdit" parent="Margin/HBox/StreamPanel/VBox/TopBar"]
+[node name="Spacer2" type="Control" parent="ConnectScreen/VBox"]
+custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
+
+[node name="AdvancedToggle" type="Button" parent="ConnectScreen/VBox"]
+layout_mode = 2
+size_flags_horizontal = 4
+theme_type_variation = &"GhostButton"
+toggle_mode = true
+text = "Conexión manual"
+
+[node name="AdvancedBox" type="HBoxContainer" parent="ConnectScreen/VBox"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HostEdit" type="LineEdit" parent="ConnectScreen/VBox/AdvancedBox"]
+custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 size_flags_horizontal = 3
-text = "192.168.2.30"
-placeholder_text = "IP del Quest (mismo wifi)"
+placeholder_text = "IP del visor (misma red Wi-Fi)"
 
-[node name="ConnectButton" type="Button" parent="Margin/HBox/StreamPanel/VBox/TopBar"]
+[node name="ConnectButton" type="Button" parent="ConnectScreen/VBox/AdvancedBox"]
+custom_minimum_size = Vector2(140, 48)
 layout_mode = 2
+theme_type_variation = &"AccentButton"
 text = "Conectar"
-custom_minimum_size = Vector2(110, 0)
 
-[node name="DiscoveredLabel" type="Label" parent="Margin/HBox/StreamPanel/VBox"]
+[node name="Main" type="VBoxContainer" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/separation = 0
+
+[node name="HeaderBar" type="PanelContainer" parent="Main"]
 layout_mode = 2
-text = "Visores detectados en la red:"
-theme_override_font_sizes/font_size = 13
-theme_override_colors/font_color = Color(0.7, 0.75, 0.85, 1)
+theme_type_variation = &"HeaderBar"
 
-[node name="DiscoveredList" type="HBoxContainer" parent="Margin/HBox/StreamPanel/VBox"]
+[node name="HBox" type="HBoxContainer" parent="Main/HeaderBar"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="HeaderIcon" type="TextureRect" parent="Main/HeaderBar/HBox"]
+custom_minimum_size = Vector2(26, 26)
+layout_mode = 2
+size_flags_vertical = 4
+texture = ExtResource("2_eye")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="HeaderTitle" type="Label" parent="Main/HeaderBar/HBox"]
+layout_mode = 2
+theme_type_variation = &"TitleLabel"
+theme_override_font_sizes/font_size = 19
+text = "Simulador IOL"
+
+[node name="SpacerL" type="Control" parent="Main/HeaderBar/HBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ScenarioLabel" type="Label" parent="Main/HeaderBar/HBox"]
+layout_mode = 2
+theme_type_variation = &"SubtitleLabel"
+text = "Escenario:"
+
+[node name="ScenarioList" type="HBoxContainer" parent="Main/HeaderBar/HBox"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="StatusLabel" type="Label" parent="Margin/HBox/StreamPanel/VBox"]
+[node name="SpacerR" type="Control" parent="Main/HeaderBar/HBox"]
 layout_mode = 2
-text = "desconectado"
-theme_override_font_sizes/font_size = 13
-theme_override_colors/font_color = Color(0.65, 0.7, 0.78, 1)
+size_flags_horizontal = 3
 
-[node name="StreamFrame" type="PanelContainer" parent="Margin/HBox/StreamPanel/VBox"]
+[node name="ThemeToggle" type="Button" parent="Main/HeaderBar/HBox"]
+custom_minimum_size = Vector2(48, 48)
 layout_mode = 2
-size_flags_vertical = 3
-theme_override_styles/panel = SubResource("StyleBox_stream")
+theme_type_variation = &"GhostButton"
+tooltip_text = "Cambiar entre modo claro y oscuro"
+icon = ExtResource("5_moon")
+icon_alignment = 1
+expand_icon = true
 
-[node name="EyesContainer" type="HBoxContainer" parent="Margin/HBox/StreamPanel/VBox/StreamFrame"]
+[node name="StatusBadge" type="PanelContainer" parent="Main/HeaderBar/HBox"]
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"StatusBadge"
+
+[node name="HBox" type="HBoxContainer" parent="Main/HeaderBar/HBox/StatusBadge"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="LeftEyePane" type="VBoxContainer" parent="Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer"]
+[node name="StatusDot" type="Label" parent="Main/HeaderBar/HBox/StatusBadge/HBox"]
+layout_mode = 2
+text = "●"
+
+[node name="StatusText" type="Label" parent="Main/HeaderBar/HBox/StatusBadge/HBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "Conectado"
+
+[node name="DisconnectButton" type="Button" parent="Main/HeaderBar/HBox"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+theme_type_variation = &"GhostButton"
+text = "Desconectar"
+
+[node name="BodyMargin" type="MarginContainer" parent="Main"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 4
+
+[node name="Body" type="HBoxContainer" parent="Main/BodyMargin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="StreamPanel" type="PanelContainer" parent="Main/BodyMargin/Body"]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = 4
+size_flags_stretch_ratio = 2.3
+theme_type_variation = &"StreamFrame"
 
-[node name="LeftEyeLabel" type="Label" parent="Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/LeftEyePane"]
+[node name="EyesContainer" type="HBoxContainer" parent="Main/BodyMargin/Body/StreamPanel"]
 layout_mode = 2
-text = "Ambos ojos"
-horizontal_alignment = 1
-theme_override_font_sizes/font_size = 13
-theme_override_colors/font_color = Color(0.7, 0.78, 0.9, 1)
+theme_override_constants/separation = 8
 
-[node name="TextureRect" type="TextureRect" parent="Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/LeftEyePane"]
+[node name="LeftEyePane" type="VBoxContainer" parent="Main/BodyMargin/Body/StreamPanel/EyesContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="LeftEyeLabel" type="Label" parent="Main/BodyMargin/Body/StreamPanel/EyesContainer/LeftEyePane"]
+layout_mode = 2
+size_flags_horizontal = 4
+theme_type_variation = &"StreamChip"
+text = "Ambos ojos"
+
+[node name="TextureRect" type="TextureRect" parent="Main/BodyMargin/Body/StreamPanel/EyesContainer/LeftEyePane"]
 layout_mode = 2
 size_flags_vertical = 3
 expand_mode = 1
 stretch_mode = 5
 
-[node name="RightEyePane" type="VBoxContainer" parent="Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer"]
+[node name="RightEyePane" type="VBoxContainer" parent="Main/BodyMargin/Body/StreamPanel/EyesContainer"]
 visible = false
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = 4
+theme_override_constants/separation = 6
 
-[node name="RightEyeLabel" type="Label" parent="Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/RightEyePane"]
+[node name="RightEyeLabel" type="Label" parent="Main/BodyMargin/Body/StreamPanel/EyesContainer/RightEyePane"]
 layout_mode = 2
+size_flags_horizontal = 4
+theme_type_variation = &"StreamChip"
 text = "OD Derecho"
-horizontal_alignment = 1
-theme_override_font_sizes/font_size = 13
-theme_override_colors/font_color = Color(0.7, 0.78, 0.9, 1)
 
-[node name="TextureRect" type="TextureRect" parent="Margin/HBox/StreamPanel/VBox/StreamFrame/EyesContainer/RightEyePane"]
+[node name="TextureRect" type="TextureRect" parent="Main/BodyMargin/Body/StreamPanel/EyesContainer/RightEyePane"]
 layout_mode = 2
 size_flags_vertical = 3
 expand_mode = 1
 stretch_mode = 5
 
-[node name="ControlPanel" type="PanelContainer" parent="Margin/HBox"]
+[node name="ControlScroll" type="ScrollContainer" parent="Main/BodyMargin/Body"]
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_stretch_ratio = 1.0
+horizontal_scroll_mode = 0
 
-[node name="VBox" type="VBoxContainer" parent="Margin/HBox/ControlPanel"]
+[node name="ControlVBox" type="VBoxContainer" parent="Main/BodyMargin/Body/ControlScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="EyeCard" type="PanelContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox"]
+layout_mode = 2
+theme_type_variation = &"Card"
+
+[node name="VBox" type="VBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/EyeCard"]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="ControlTitle" type="Label" parent="Margin/HBox/ControlPanel/VBox"]
+[node name="Title" type="Label" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/EyeCard/VBox"]
 layout_mode = 2
-text = "Control de lentes"
-horizontal_alignment = 1
-theme_override_font_sizes/font_size = 20
-theme_override_colors/font_color = Color(0.85, 0.9, 1, 1)
+theme_type_variation = &"SectionLabel"
+text = "Ojo a tratar"
 
-[node name="Separator1" type="HSeparator" parent="Margin/HBox/ControlPanel/VBox"]
+[node name="EyeSelector" type="HBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/EyeCard/VBox"]
 layout_mode = 2
-
-[node name="EyeLabel" type="Label" parent="Margin/HBox/ControlPanel/VBox"]
-layout_mode = 2
-text = "Aplicar a:"
-theme_override_colors/font_color = Color(0.7, 0.75, 0.85, 1)
-
-[node name="EyeOption" type="OptionButton" parent="Margin/HBox/ControlPanel/VBox"]
-layout_mode = 2
-
-[node name="Separator2" type="HSeparator" parent="Margin/HBox/ControlPanel/VBox"]
-layout_mode = 2
-
-[node name="LensListTitle" type="Label" parent="Margin/HBox/ControlPanel/VBox"]
-layout_mode = 2
-text = "Lentes disponibles:"
-theme_override_colors/font_color = Color(0.7, 0.75, 0.85, 1)
-
-[node name="LensListScroll" type="ScrollContainer" parent="Margin/HBox/ControlPanel/VBox"]
-layout_mode = 2
-size_flags_vertical = 3
-horizontal_scroll_mode = 0
-
-[node name="LensList" type="VBoxContainer" parent="Margin/HBox/ControlPanel/VBox/LensListScroll"]
-layout_mode = 2
-size_flags_horizontal = 3
 theme_override_constants/separation = 6
 
-[node name="Separator3" type="HSeparator" parent="Margin/HBox/ControlPanel/VBox"]
-layout_mode = 2
-
-[node name="ParamsHeader" type="HBoxContainer" parent="Margin/HBox/ControlPanel/VBox"]
-layout_mode = 2
-
-[node name="ParamsTitle" type="Label" parent="Margin/HBox/ControlPanel/VBox/ParamsHeader"]
+[node name="EyeBoth" type="Button" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/EyeCard/VBox/EyeSelector"]
+custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Ajuste en vivo:"
-theme_override_colors/font_color = Color(0.7, 0.75, 0.85, 1)
+theme_type_variation = &"SegmentButton"
+toggle_mode = true
+button_pressed = true
+button_group = SubResource("ButtonGroup_eye")
+text = "Ambos"
 
-[node name="ResetButton" type="Button" parent="Margin/HBox/ControlPanel/VBox/ParamsHeader"]
-layout_mode = 2
-text = "Restaurar"
-custom_minimum_size = Vector2(100, 0)
-disabled = true
-
-[node name="ParamsScroll" type="ScrollContainer" parent="Margin/HBox/ControlPanel/VBox"]
-layout_mode = 2
-size_flags_vertical = 3
-horizontal_scroll_mode = 0
-
-[node name="ParamsList" type="VBoxContainer" parent="Margin/HBox/ControlPanel/VBox/ParamsScroll"]
+[node name="EyeOD" type="Button" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/EyeCard/VBox/EyeSelector"]
+custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 size_flags_horizontal = 3
+theme_type_variation = &"SegmentButton"
+tooltip_text = "Ojo derecho"
+toggle_mode = true
+button_group = SubResource("ButtonGroup_eye")
+text = "OD · Derecho"
+
+[node name="EyeOI" type="Button" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/EyeCard/VBox/EyeSelector"]
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"SegmentButton"
+tooltip_text = "Ojo izquierdo"
+toggle_mode = true
+button_group = SubResource("ButtonGroup_eye")
+text = "OI · Izquierdo"
+
+[node name="LensesCard" type="PanelContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox"]
+layout_mode = 2
+theme_type_variation = &"Card"
+
+[node name="VBox" type="VBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/LensesCard"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/LensesCard/VBox"]
+layout_mode = 2
+theme_type_variation = &"SectionLabel"
+text = "Lentes intraoculares"
+
+[node name="LensList" type="VBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/LensesCard/VBox"]
+layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="Separator4" type="HSeparator" parent="Margin/HBox/ControlPanel/VBox"]
+[node name="ParamsCard" type="PanelContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox"]
+layout_mode = 2
+theme_type_variation = &"Card"
+
+[node name="VBox" type="VBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/ParamsCard"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Header" type="HBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/ParamsCard/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ParamsToggle" type="Button" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/ParamsCard/VBox/Header"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"GhostButton"
+toggle_mode = true
+text = "Ajuste fino"
+icon = ExtResource("3_sliders")
+alignment = 0
+
+[node name="ParamsChevron" type="TextureRect" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/ParamsCard/VBox/Header"]
+custom_minimum_size = Vector2(22, 22)
+layout_mode = 2
+size_flags_vertical = 4
+texture = ExtResource("4_chevron")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="ParamsContent" type="VBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/ParamsCard/VBox"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="EditingLensLabel" type="Label" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/ParamsCard/VBox/ParamsContent"]
+layout_mode = 2
+theme_type_variation = &"HintLabel"
+text = "Aplicá una lente para ajustar sus parámetros."
+
+[node name="ParamsList" type="VBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/ParamsCard/VBox/ParamsContent"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="ResetButton" type="Button" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/ParamsCard/VBox/ParamsContent"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 8
+theme_type_variation = &"GhostButton"
+disabled = true
+text = "Restaurar valores"
+
+[node name="AstigCard" type="PanelContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox"]
+layout_mode = 2
+theme_type_variation = &"Card"
+
+[node name="VBox" type="VBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Header" type="HBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="AstigToggle" type="Button" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox/Header"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"GhostButton"
+toggle_mode = true
+text = "Astigmatismo"
+alignment = 0
+
+[node name="AstigChevron" type="TextureRect" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox/Header"]
+custom_minimum_size = Vector2(22, 22)
+layout_mode = 2
+size_flags_vertical = 4
+texture = ExtResource("4_chevron")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="AstigContent" type="VBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="AstigEnabled" type="CheckButton" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox/AstigContent"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+tooltip_text = "Estira las fuentes brillantes en una línea (streak) sobre el eje elegido. Simula astigmatismo no corregido."
+text = "Simular astigmatismo"
+
+[node name="MagHeader" type="HBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox/AstigContent"]
 layout_mode = 2
 
-[node name="StateLabel" type="Label" parent="Margin/HBox/ControlPanel/VBox"]
+[node name="MagLabel" type="Label" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox/AstigContent/MagHeader"]
 layout_mode = 2
-text = "Estado actual:\n  L: -\n  R: -"
-theme_override_font_sizes/font_size = 14
-theme_override_colors/font_color = Color(0.6, 0.85, 0.7, 1)
+size_flags_horizontal = 3
+text = "Magnitud"
 
-[node name="Separator5" type="HSeparator" parent="Margin/HBox/ControlPanel/VBox"]
+[node name="MagValue" type="Label" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox/AstigContent/MagHeader"]
+layout_mode = 2
+theme_type_variation = &"ValueLabel"
+text = "25 px"
+
+[node name="MagSlider" type="HSlider" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox/AstigContent"]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+max_value = 50.0
+step = 1.0
+value = 25.0
+
+[node name="AngleHeader" type="HBoxContainer" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox/AstigContent"]
 layout_mode = 2
 
-[node name="ScenarioTitle" type="Label" parent="Margin/HBox/ControlPanel/VBox"]
+[node name="AngleLabel" type="Label" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox/AstigContent/AngleHeader"]
 layout_mode = 2
-text = "Escenario:"
-theme_override_colors/font_color = Color(0.7, 0.75, 0.85, 1)
+size_flags_horizontal = 3
+text = "Eje"
 
-[node name="ScenarioList" type="HBoxContainer" parent="Margin/HBox/ControlPanel/VBox"]
+[node name="AngleValue" type="Label" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox/AstigContent/AngleHeader"]
 layout_mode = 2
-theme_override_constants/separation = 6
+theme_type_variation = &"ValueLabel"
+text = "0°"
+
+[node name="AngleSlider" type="HSlider" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox/AstigContent"]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+max_value = 180.0
+step = 1.0
+
+[node name="Footer" type="MarginContainer" parent="Main"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 2
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 6
+
+[node name="FooterLabel" type="Label" parent="Main/Footer"]
+layout_mode = 2
+theme_type_variation = &"HintLabel"
+horizontal_alignment = 2
+text = ""

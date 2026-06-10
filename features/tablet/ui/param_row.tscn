@@ -1,0 +1,33 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://features/tablet/ui/param_row.gd" id="1_script"]
+
+[node name="ParamRow" type="VBoxContainer"]
+theme_override_constants/separation = 2
+script = ExtResource("1_script")
+
+[node name="Header" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="NameLabel" type="Label" parent="Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 1
+text = "Parametro"
+
+[node name="ValueLabel" type="Label" parent="Header"]
+layout_mode = 2
+theme_type_variation = &"ValueLabel"
+text = "0.00"
+
+[node name="Slider" type="HSlider" parent="."]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 40)
+size_flags_horizontal = 3
+size_flags_vertical = 4
+
+[node name="HintLabel" type="Label" parent="."]
+layout_mode = 2
+theme_type_variation = &"HintLabel"
+autowrap_mode = 3
+text = ""
