@@ -21,6 +21,7 @@ const SYNC_TIMEOUT_SECONDS := 5.0
 
 const DEFAULT_CATALOG_PATH := "res://defaults/lentes.json"
 const USER_CATALOG_PATH := "user://lentes.json"
+const OVERRIDES_PATH := "user://lens_overrides.json"
 
 # ====================================================================
 # Senales
@@ -49,6 +50,13 @@ var current_vision_state: Dictionary = {
 var blend_mode_enabled: bool = false
 
 var _http: HTTPRequest
+# Ajustes PERSISTENTES por lente (lens_id -> {param: valor}). Son los overrides
+# hechos desde la tablet: se aplican ENCIMA de los defaults del catalogo en
+# cada apply_lens y se guardan en user:// (con debounce), asi sobreviven
+# reinicios de la app. Un valor que vuelve al default del catalogo se elimina
+# del archivo (el "reset" de la tablet limpia de verdad).
+var _lens_overrides: Dictionary = {}
+var _overrides_save_pending := false
 
 
 func _ready() -> void:
@@ -58,9 +66,18 @@ func _ready() -> void:
 	_http.request_completed.connect(_on_sync_completed)
 	add_child(_http)
 
+	_load_lens_overrides()
 	_load_local_catalog()
 	# Sync en background. No bloquea el arranque del simulador.
 	_try_sync_with_backend()
+
+
+func _notification(what: int) -> void:
+	# En Quest/Android la app puede morir sin aviso al perder foco: si hay un
+	# guardado pendiente del debounce, se persiste ya mismo.
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
+		if _overrides_save_pending:
+			_save_lens_overrides()
 
 
 # ====================================================================
@@ -84,6 +101,8 @@ func _try_load_from_path(path: String, source: String) -> bool:
 	if parsed.is_empty():
 		push_warning("DataManager: catalogo invalido en %s, ignorando." % path)
 		return false
+	if source != "defaults":
+		_merge_missing_params_from_defaults(parsed)
 	catalog = parsed
 	catalog_source = source
 	var version: String = catalog.get("version", "unknown")
@@ -103,6 +122,36 @@ func _parse_catalog_json(text: String) -> Dictionary:
 	if not data.has("catalogo") or not (data["catalogo"] is Array):
 		return {}
 	return data
+
+
+## Completa params FALTANTES de cada lente con los del catalogo embebido
+## (res://defaults/lentes.json). Un catalogo viejo (cache de un sync anterior o
+## backend sin migrar) puede no traer claves nuevas — p.ej. destello_intensity/
+## destello_rayos —: sin este merge, esos efectos quedaban APAGADOS en el visor
+## aunque el shader los soporte (los globals del glare nunca se seteaban).
+## Solo agrega claves ausentes; NUNCA pisa valores que el catalogo ya trae.
+func _merge_missing_params_from_defaults(cat: Dictionary) -> void:
+	var text := FileAccess.get_file_as_string(DEFAULT_CATALOG_PATH)
+	var defaults := _parse_catalog_json(text)
+	if defaults.is_empty():
+		return
+	var added := 0
+	for lens in (cat.get("catalogo", []) as Array):
+		if not (lens is Dictionary):
+			continue
+		for dlens in (defaults["catalogo"] as Array):
+			if not (dlens is Dictionary) or dlens.get("id") != lens.get("id"):
+				continue
+			var dparams: Dictionary = dlens.get("params", {})
+			var lparams: Dictionary = lens.get("params", {})
+			for key in dparams.keys():
+				if not lparams.has(key):
+					lparams[key] = dparams[key]
+					added += 1
+			lens["params"] = lparams
+			break
+	if added > 0:
+		print("DataManager: %d params faltantes completados desde defaults." % added)
 
 
 func _count_lenses(cat: Dictionary) -> int:
@@ -139,6 +188,7 @@ func _on_sync_completed(result: int, response_code: int, _headers: PackedStringA
 
 	# Sobrescribir cache y memoria con la version del backend.
 	_save_to_cache(text)
+	_merge_missing_params_from_defaults(parsed)
 	catalog = parsed
 	catalog_source = "backend"
 	last_sync_time = Time.get_unix_time_from_system()
@@ -191,6 +241,11 @@ func apply_lens(lens_id: String, eye: String = "both") -> void:
 		return
 
 	var params := _params_to_defaults(lens.get("params", {}))
+	# Reaplicar los ajustes persistidos de esta lente (tablet) sobre los
+	# defaults del catalogo.
+	var saved: Dictionary = _lens_overrides.get(lens_id, {})
+	for key in saved.keys():
+		params[key] = saved[key]
 	params["lens_id"] = lens_id
 
 	# Respetar SIEMPRE el ojo solicitado. blend_mode_enabled es solo un flag
@@ -210,9 +265,9 @@ func apply_lens(lens_id: String, eye: String = "both") -> void:
 
 
 ## Aplica un override de parametros en tiempo real sobre el estado de vision de
-## uno o ambos ojos. SOLO modifica current_vision_state en memoria: NO toca el
-## catalogo, ni la cache user://, ni los defaults. Pensado para que la tablet
-## ajuste valores de una lente ya aplicada sin alterar la base de datos.
+## uno o ambos ojos. NO toca el catalogo (ni cache ni defaults), pero SI se
+## persiste por lente en user://lens_overrides.json: al volver a aplicar esa
+## lente (o reiniciar la app) los ajustes de la tablet se conservan.
 ## params: { "blur_near": 0.42, "halo_intensity": 0.7, ... }
 ## eye: "left" | "right" | "both".
 func override_params(params: Dictionary, eye: String = "both") -> void:
@@ -230,6 +285,63 @@ func override_params(params: Dictionary, eye: String = "both") -> void:
 			state[key] = params[key]
 		current_vision_state[e] = state
 		vision_state_changed.emit(e, state)
+		var lens_id: String = state.get("lens_id", "")
+		if lens_id != "":
+			_store_lens_overrides(lens_id, params)
+
+
+# ====================================================================
+# Persistencia de overrides por lente
+# ====================================================================
+func _store_lens_overrides(lens_id: String, params: Dictionary) -> void:
+	var defaults := _params_to_defaults(get_lens(lens_id).get("params", {}))
+	var saved: Dictionary = _lens_overrides.get(lens_id, {})
+	for key in params.keys():
+		if key == "lens_id":
+			continue
+		var value = params[key]
+		# Si el valor vuelve al default del catalogo, el override sobra: se
+		# elimina (archivo minimo + el "reset" de la tablet limpia de verdad).
+		var is_num := typeof(value) in [TYPE_FLOAT, TYPE_INT]
+		var def_is_num: bool = defaults.has(key) \
+			and typeof(defaults[key]) in [TYPE_FLOAT, TYPE_INT]
+		if is_num and def_is_num and absf(float(value) - float(defaults[key])) < 0.0005:
+			saved.erase(key)
+		else:
+			saved[key] = value
+	if saved.is_empty():
+		_lens_overrides.erase(lens_id)
+	else:
+		_lens_overrides[lens_id] = saved
+	_schedule_overrides_save()
+
+
+func _schedule_overrides_save() -> void:
+	# Debounce: el slider de la tablet emite muchos cambios por segundo; se
+	# escribe una sola vez, 1 s despues del ultimo cambio recibido.
+	if _overrides_save_pending:
+		return
+	_overrides_save_pending = true
+	get_tree().create_timer(1.0).timeout.connect(_save_lens_overrides)
+
+
+func _save_lens_overrides() -> void:
+	_overrides_save_pending = false
+	var f := FileAccess.open(OVERRIDES_PATH, FileAccess.WRITE)
+	if f == null:
+		push_warning("DataManager: no se pudo escribir %s" % OVERRIDES_PATH)
+		return
+	f.store_string(JSON.stringify(_lens_overrides, "  "))
+	print("DataManager: overrides de lentes guardados (%d lentes)." % _lens_overrides.size())
+
+
+func _load_lens_overrides() -> void:
+	if not FileAccess.file_exists(OVERRIDES_PATH):
+		return
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string(OVERRIDES_PATH))
+	if parsed is Dictionary:
+		_lens_overrides = parsed
+		print("DataManager: overrides de lentes cargados (%d lentes)." % _lens_overrides.size())
 
 
 func _params_to_defaults(params_def: Dictionary) -> Dictionary:

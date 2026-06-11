@@ -39,6 +39,11 @@ global uniform float glare_rays_r;
 instance uniform vec3 src_color = vec3(1.0, 1.0, 1.0);
 instance uniform float src_energy = 1.0;     // brillo relativo (faro=1.0)
 instance uniform float seed = 0.0;           // varia los rayos entre fuentes
+// Direccion LOCAL (espacio del parent) hacia donde APUNTA el haz de la fuente.
+// vec3(0) = fuente omnidireccional (farolas). Si esta seteada, el glare solo se
+// ve cuando la fuente mira hacia la camara (faros de frente, pilotos de atras):
+// un auto que viene de frente NO debe mostrar los halos rojos de sus pilotos.
+instance uniform vec3 src_dir = vec3(0.0);
 
 // === Calibracion angular (radianes) ===
 // Equivalente a las fracciones de pantalla del shader screen-space:
@@ -76,13 +81,23 @@ void vertex() {
 	vec3 origin = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 	vec3 cam_pos = INV_VIEW_MATRIX[3].xyz;
 	float dist = max(distance(origin, cam_pos), 0.2);
+	vec3 toward = (cam_pos - origin) / dist;
+
+	// Direccionalidad: atenuar por el angulo entre el haz y la camara. Una luz
+	// que NO mira a la camara no deslumbra (pilotos de un auto que viene de
+	// frente). De costado (dot~0) ya se apaga; el fundido evita un corte seco.
+	float facing = 1.0;
+	if (dot(src_dir, src_dir) > 0.25) {
+		vec3 beam = normalize((MODEL_MATRIX * vec4(src_dir, 0.0)).xyz);
+		facing = smoothstep(0.05, 0.35, dot(beam, toward));
+	}
 
 	float pupil_scale = mix(1.0, PUPIL_GAIN, v_pupil);
 	float halo_r = HALO_ANG_RADIUS * v_halo * pupil_scale;
 	float star_r = STAR_ANG_RADIUS * v_star;
 	float ang_max = max(halo_r, star_r);
 
-	if (ang_max < 0.004) {
+	if (ang_max < 0.004 || facing < 0.01) {
 		// Sin efecto en este ojo: colapsar el quad (cero fragmentos).
 		POSITION = vec4(0.0, 0.0, 2.0, 1.0);
 		v_halo_frac = 0.0;
@@ -91,14 +106,14 @@ void vertex() {
 	} else {
 		v_halo_frac = halo_r / ang_max;
 		v_star_frac = star_r / ang_max;
-		// Brillo: cae ~1/d respecto de la referencia (de cerca deslumbra mas).
-		v_fade = clamp(src_energy * DIST_REF_M / dist, 0.0, 1.0);
+		// Brillo: cae ~1/d respecto de la referencia (de cerca deslumbra mas),
+		// y se apaga si el haz no mira a la camara (facing).
+		v_fade = clamp(src_energy * DIST_REF_M / dist, 0.0, 1.0) * facing;
 
 		// Billboard con tamano angular constante: radio mundial = dist * angulo.
 		float radius_w = dist * ang_max;
 		vec3 right = normalize(INV_VIEW_MATRIX[0].xyz);
 		vec3 up = normalize(INV_VIEW_MATRIX[1].xyz);
-		vec3 toward = (cam_pos - origin) / dist;
 		vec3 wpos = origin
 				+ (right * VERTEX.x + up * VERTEX.y) * radius_w
 				+ toward * (dist * TOWARD_CAM_FRAC);
@@ -140,7 +155,13 @@ void fragment() {
 		total += spoke * falloff * mix(0.5, 1.0, h2) * v_star * 1.3;
 	}
 
+	// Ventana de borde: el glow gaussiano NO llega a 0 en el borde del quad
+	// (exp(-3.2) ~ 4% de brillo residual) y con blend_add sobre el cielo oscuro
+	// ese corte abrupto se veia como un RECUADRO alrededor de cada halo. La
+	// ventana fuerza un fundido continuo a 0 antes del borde; dentro de r<0.8
+	// no cambia nada (smoothstep = 0 alli).
+	float edge_fade = 1.0 - smoothstep(0.80, 0.98, r);
 	// Color de la fuente; con pupila dilatada vira levemente a azul (Purkinje).
 	vec3 col = mix(src_color, src_color * vec3(0.85, 0.95, 1.15), v_pupil * 0.45);
-	ALBEDO = col * (total * v_fade);
+	ALBEDO = col * (total * v_fade * edge_fade);
 }

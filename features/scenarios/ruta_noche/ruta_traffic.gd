@@ -335,14 +335,20 @@ func _split_car_lights(body_mi: MeshInstance3D, pivot: Node3D) -> void:
 
 	# Billboards de glare procedural: faros blancos (frente) deslumbran mas
 	# que los pilotos rojos. Uno por cluster con triangulos suficientes.
+	# DIRECCIONALES: el haz del faro apunta al frente (+Z en espacio final del
+	# auto) y el del piloto hacia atras; el shader apaga el glare cuando la luz
+	# no mira a la camara (un auto de frente solo muestra halos BLANCOS, nunca
+	# los rojos de sus pilotos). La direccion se pasa en espacio del pivot
+	# (donde cuelga el billboard).
+	var fwd_local: Vector3 = (pivot_inv.basis * Vector3(0.0, 0.0, 1.0)).normalized()
 	for ci in range(4):
 		if cn[ci] < 2:
 			continue
 		var pos: Vector3 = csum[ci] / float(cn[ci])
 		if ci < 2:
-			GlareSource.attach(pivot, pos, Color(1.0, 0.98, 0.92), 1.0)
+			GlareSource.attach(pivot, pos, Color(1.0, 0.98, 0.92), 1.0, fwd_local)
 		else:
-			GlareSource.attach(pivot, pos, Color(1.0, 0.06, 0.04), 0.7)
+			GlareSource.attach(pivot, pos, Color(1.0, 0.06, 0.04), 0.7, -fwd_local)
 
 
 func _new_lbuf() -> Dictionary:

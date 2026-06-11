@@ -1,10 +1,12 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://features/tablet/streaming_client.gd" id="1_client"]
 [ext_resource type="Texture2D" path="res://assets/icons/ui/eye.svg" id="2_eye"]
 [ext_resource type="Texture2D" path="res://assets/icons/ui/sliders.svg" id="3_sliders"]
 [ext_resource type="Texture2D" path="res://assets/icons/ui/chevron_down.svg" id="4_chevron"]
 [ext_resource type="Texture2D" path="res://assets/icons/ui/moon.svg" id="5_moon"]
+[ext_resource type="Script" path="res://features/tablet/ui/touch_scroll.gd" id="6_touchscroll"]
+[ext_resource type="Script" path="res://features/tablet/ui/slider_strip.gd" id="7_sliderstrip"]
 
 [sub_resource type="ButtonGroup" id="ButtonGroup_eye"]
 
@@ -240,6 +242,7 @@ stretch_mode = 5
 layout_mode = 2
 size_flags_horizontal = 3
 horizontal_scroll_mode = 0
+script = ExtResource("6_touchscroll")
 
 [node name="ControlVBox" type="VBoxContainer" parent="Main/BodyMargin/Body/ControlScroll"]
 layout_mode = 2
@@ -395,6 +398,7 @@ stretch_mode = 5
 visible = false
 layout_mode = 2
 theme_override_constants/separation = 8
+script = ExtResource("7_sliderstrip")
 
 [node name="AstigEnabled" type="CheckButton" parent="Main/BodyMargin/Body/ControlScroll/ControlVBox/AstigCard/VBox/AstigContent"]
 custom_minimum_size = Vector2(0, 48)

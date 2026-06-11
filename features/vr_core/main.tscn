@@ -232,5 +232,12 @@ post_process_quad_path = NodePath("../../XRCamera3D/PostProcessQuad")
 xr_camera_path = NodePath("../../XRCamera3D")
 book_node_path = NodePath("BookMesh")
 
+; Orientacion calibrada EN EL VISOR (la pose neutra del controller en
+; escritorio difiere de como se sostiene en la mano, el preview de PC engaña):
+;   1. RotY(180°): el modelo trae la tapa hacia el lector — girado, las
+;      PAGINAS y el texto quedan derechos hacia quien sostiene el control.
+;   2. RotX(-60°): inclinacion del pliego hacia adelante/atras (sin esto
+;      quedaba inclinado hacia la cara del lector). Ajustar X en el
+;      inspector si hace falta mas/menos (mas negativo = tope mas atras).
 [node name="BookMesh" parent="XROrigin3D/RightHand/BookHolder" instance=ExtResource("5_book")]
-transform = Transform3D(0.03, 0, 0, 0, 0.03, 0, 0, 0, 0.03, 0, -0.02, -0.13)
+transform = Transform3D(-0.03, 0, 0, 0, 0.015, 0.0259808, 0, 0.0259808, -0.015, 0, -0.02, -0.13)

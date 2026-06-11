@@ -160,8 +160,22 @@ func _build_single_lamp_mesh() -> ArrayMesh:
 
 	var metal := _new_buffers()
 	var lum := _new_buffers()
+	# Ancla del glare: centroide del cabezal ponderado por la textura EMISIVA
+	# (em.png). El cabezal entero mide ~2 m a lo largo del brazo pero solo la
+	# punta brilla: el centroide geometrico puro dejaba el halo corrido ~0.56 m
+	# hacia el poste respecto de la luz visible. Fallback sin ponderar si la
+	# textura no se puede muestrear (p.ej. compresion sin decode en el device).
+	var em_img: Image = null
+	var em_tex := _lamp_lum_mat.emission_texture as Texture2D
+	if em_tex != null:
+		em_img = em_tex.get_image()
+		if em_img != null and em_img.is_compressed():
+			if em_img.decompress() != OK:
+				em_img = null
 	var head_sum := Vector3.ZERO
 	var head_n := 0
+	var em_sum := Vector3.ZERO
+	var em_w := 0.0
 
 	for s in range(src.get_surface_count()):
 		var arr := src.surface_get_arrays(s)
@@ -197,6 +211,14 @@ func _build_single_lamp_mesh() -> ArrayMesh:
 			if is_head:
 				head_sum += centroid
 				head_n += 1
+				if em_img != null and su.size() > 0:
+					var uvc: Vector2 = (su[a] + su[b] + su[c]) / 3.0
+					var e := em_img.get_pixel(
+						clampi(int(uvc.x * float(em_img.get_width())), 0, em_img.get_width() - 1),
+						clampi(int(uvc.y * float(em_img.get_height())), 0, em_img.get_height() - 1)).r
+					var area := (sv[b] - sv[a]).cross(sv[c] - sv[a]).length() * 0.5
+					em_sum += centroid * (e * area)
+					em_w += e * area
 
 	# Recentrar sobre la base del poste: usar el centro XZ del metal (poste/brazo).
 	var base := Vector3.ZERO
@@ -209,7 +231,9 @@ func _build_single_lamp_mesh() -> ArrayMesh:
 		base = Vector3(c.x, 0.0, c.z)
 	_recenter(metal["v"], base)
 	_recenter(lum["v"], base)
-	if head_n > 0:
+	if em_w > 0.001:
+		_head_local_positions.append((em_sum / em_w) - base)
+	elif head_n > 0:
 		_head_local_positions.append((head_sum / float(head_n)) - base)
 
 	var am := ArrayMesh.new()

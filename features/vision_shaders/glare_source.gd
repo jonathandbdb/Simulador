@@ -7,7 +7,10 @@ extends MeshInstance3D
 ## mipmaps del backbuffer (no se generan en el Quest/multiview). Ver
 ## glare_billboard.gdshader para el detalle.
 ##
-## Uso: GlareSource.attach(parent, pos_local, color, energia_relativa)
+## Uso: GlareSource.attach(parent, pos_local, color, energia_relativa, beam_dir)
+##   - beam_dir (espacio local del parent): direccion hacia donde APUNTA el haz.
+##     Vector3.ZERO = omnidireccional (farolas). Con direccion, el glare solo se
+##     ve cuando la luz mira a la camara (faros de frente / pilotos de atras).
 ##   - Material COMPARTIDO entre todas las fuentes (instance uniforms para
 ##     color/energia/seed) -> un solo shader compilado, draw calls baratos.
 ##   - El grupo "glare_billboards" permite ocultarlos todos al apagar el
@@ -20,7 +23,7 @@ static var _seed_counter: int = 0
 
 
 static func attach(parent: Node3D, local_pos: Vector3, color: Color,
-		energy: float) -> GlareSource:
+		energy: float, beam_dir: Vector3 = Vector3.ZERO) -> GlareSource:
 	if _shared_mat == null:
 		_shared_mat = ShaderMaterial.new()
 		_shared_mat.shader = GLARE_SHADER
@@ -44,6 +47,7 @@ static func attach(parent: Node3D, local_pos: Vector3, color: Color,
 	parent.add_child(g)
 	g.set_instance_shader_parameter("src_color", Vector3(color.r, color.g, color.b))
 	g.set_instance_shader_parameter("src_energy", energy)
+	g.set_instance_shader_parameter("src_dir", beam_dir)
 	_seed_counter += 1
 	g.set_instance_shader_parameter("seed", float(_seed_counter % 97))
 	return g

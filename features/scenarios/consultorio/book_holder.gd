@@ -30,6 +30,10 @@ var _camera: XRCamera3D
 var _book: Node3D
 var _debug_label: Label3D
 var _shader_mat: ShaderMaterial
+# Mitad del lado mayor del libro (m), medida del AABB de sus mallas. Define el
+# radio ANGULAR de la mascara en pantalla (antes era un radio fijo 0.42 que
+# cubria media pantalla y emborronaba todo alrededor del libro).
+var _book_half_m: float = 0.18
 
 # Distancia suavizada del libro a la camara (lo que se escribe al shader).
 var _smoothed_distance_m: float = 0.0
@@ -50,6 +54,7 @@ func _ready() -> void:
 	# las texturas del libro. Con mipmaps (ya generados en el import) esto evita
 	# el shimmer/pixelado de los glifos cuando el libro se aleja.
 	_apply_anisotropic_filtering(_book)
+	_book_half_m = _measure_book_half_size()
 
 	if _post_quad == null:
 		push_warning("BookHolder: post_process_quad no encontrado (%s)." % post_process_quad_path)
@@ -115,16 +120,42 @@ func _update_book_screen_mask() -> void:
 	var viewport := get_viewport()
 	if viewport == null:
 		return
-	var screen_pos := _camera.unproject_position(_book.global_position)
 	var viewport_size := viewport.get_visible_rect().size
 	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
 		return
-	var uv := Vector2(screen_pos.x / viewport_size.x, screen_pos.y / viewport_size.y)
-	if not _camera.is_position_behind(_book.global_position):
-		_shader_mat.set_shader_parameter("book_screen_uv", uv)
-		_shader_mat.set_shader_parameter("book_screen_radius", 0.42)
-	else:
+	if _camera.is_position_behind(_book.global_position):
 		_shader_mat.set_shader_parameter("book_screen_radius", 0.0)
+		return
+	var center: Vector3 = _book.global_position
+	var screen_pos := _camera.unproject_position(center)
+	var uv := Vector2(screen_pos.x / viewport_size.x, screen_pos.y / viewport_size.y)
+	# Radio segun el tamano ANGULAR real del libro: se proyecta un punto a
+	# medio-libro del centro y se mide en pantalla. Con el radio fijo anterior
+	# (0.42) la mascara cubria casi media pantalla y el fondo alrededor del
+	# libro heredaba la distancia CERCANA del libro -> con monofocal todo ese
+	# circulo quedaba borroso aunque el fondo estuviera en foco.
+	var up: Vector3 = _camera.global_transform.basis.y
+	var edge_pos := _camera.unproject_position(center + up * _book_half_m)
+	var radius_uv: float = screen_pos.distance_to(edge_pos) / viewport_size.y
+	radius_uv = clampf(radius_uv * 1.45, 0.06, 0.45)
+	_shader_mat.set_shader_parameter("book_screen_uv", uv)
+	_shader_mat.set_shader_parameter("book_screen_radius", radius_uv)
+
+
+## Mitad del lado mayor (m) del AABB combinado de las mallas del libro.
+func _measure_book_half_size() -> float:
+	var largest := 0.0
+	var stack: Array[Node] = [_book]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+			var mi := n as MeshInstance3D
+			var sz: Vector3 = mi.get_aabb().size * mi.global_transform.basis.get_scale()
+			largest = maxf(largest, sz[sz.max_axis_index()])
+		stack.append_array(n.get_children())
+	if largest <= 0.0:
+		return 0.18
+	return clampf(largest * 0.5, 0.10, 0.35)
 
 
 func _update_debug_label(distance_m: float) -> void:

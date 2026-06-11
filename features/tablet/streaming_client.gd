@@ -363,6 +363,12 @@ func _on_text_received(text: String) -> void:
 			_refresh_vision_ui()
 			_session_active = true
 			_show_main_screen()
+		"vision_state":
+			# Estado real del visor (incluye overrides persistidos): refresca
+			# chips y sincroniza los sliders del ajuste fino sin re-emitir.
+			_vision_state = parsed.get("vision_state", {})
+			_refresh_vision_ui()
+			_sync_param_rows_from_state()
 		_:
 			print("TabletClient: tipo de mensaje desconocido: %s" % msg_type)
 
@@ -523,7 +529,10 @@ func _build_params_editor(lens_id: String) -> void:
 		_param_defaults[key] = def_val
 		var row := PARAM_ROW_SCENE.instantiate()
 		params_list.add_child(row)
-		row.setup(String(key), float(entry["min"]), float(entry["max"]), def_val)
+		# Valor inicial: el estado REAL del visor si esta lente esta puesta
+		# (incluye los overrides persistidos), no el default del catalogo.
+		row.setup(String(key), float(entry["min"]), float(entry["max"]),
+				_current_param_value(String(key), def_val))
 		row.param_changed.connect(_on_param_changed)
 		_param_rows[key] = row
 		added += 1
@@ -533,6 +542,24 @@ func _build_params_editor(lens_id: String) -> void:
 		editing_lens_label.text = "Esta lente no tiene parámetros editables."
 	else:
 		editing_lens_label.text = "Los ajustes se aplican al ojo que tiene esta lente."
+
+
+## Valor efectivo de un parametro para la lente en edicion segun el estado del
+## visor (el ojo que la tiene puesta); fallback al default del catalogo.
+func _current_param_value(key: String, def_val: float) -> float:
+	for eye in ["left", "right"]:
+		var state: Dictionary = _vision_state.get(eye, {})
+		if state.get("lens_id", "") == _editing_lens_id and state.has(key):
+			return float(state[key])
+	return def_val
+
+
+## Sincroniza los sliders existentes con el estado recibido del visor, sin
+## emitir param_changed (no re-enviar lo que el visor acaba de confirmar).
+func _sync_param_rows_from_state() -> void:
+	for key in _param_rows.keys():
+		var v := _current_param_value(String(key), _param_defaults.get(key, 0.0))
+		_param_rows[key].set_value_silent(v)
 
 
 func _on_param_changed(param_name: String, value: float) -> void:

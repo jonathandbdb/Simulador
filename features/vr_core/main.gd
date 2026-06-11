@@ -138,6 +138,7 @@ const NIGHT_PARAMS := {
 @onready var right_hand: XRController3D = $XROrigin3D/RightHand
 @onready var left_hand: XRController3D = $XROrigin3D/LeftHand
 @onready var xr_camera: XRCamera3D = $XROrigin3D/XRCamera3D
+@onready var xr_origin: XROrigin3D = $XROrigin3D
 @onready var scenario_container: Node3D = $ScenarioContainer
 @onready var book_holder: Node3D = $XROrigin3D/RightHand/BookHolder
 
@@ -180,6 +181,10 @@ func _ready() -> void:
 	# Referencia inicial al nodo de escena (el Consultorio instanciado en .tscn).
 	if scenario_container.get_child_count() > 0:
 		_scenario_node = scenario_container.get_child(0) as Node3D
+
+	# Sentar al paciente en la silla del escenario inicial. Diferido: el primer
+	# pose valido del HMD llega unos frames despues de _ready.
+	get_tree().create_timer(0.6).timeout.connect(_position_rig_for_scenario)
 
 	# Si DataManager ya cargo el catalogo antes de conectar las seniales
 	# (carrera comun con autoloads), reflejamos el estado actual y aplicamos
@@ -380,6 +385,15 @@ func _on_vision_state_changed(eye: String, params: Dictionary) -> void:
 	# escenario (consultorio de dia = off) los fuerza a 0 sin tocar catalogo.
 	GlareSource.set_eye_globals(eye, params, halos_enabled)
 
+	# Difundir el estado real a las tablets conectadas: asi sus sliders
+	# reflejan los valores efectivos (incluidos los overrides persistidos)
+	# tras cada apply_lens/override, no los defaults del catalogo.
+	if StreamingServer.get_open_client_count() > 0:
+		StreamingServer.broadcast_text(JSON.stringify({
+			"type": "vision_state",
+			"vision_state": DataManager.current_vision_state,
+		}))
+
 	_update_lens_hud()
 
 
@@ -510,6 +524,7 @@ func load_scenario(id: String) -> void:
 	_current_scenario_id = id
 
 	_apply_scenario_config(cfg)
+	_position_rig_for_scenario()
 
 	# Fade de vuelta.
 	tween = create_tween()
@@ -517,6 +532,34 @@ func load_scenario(id: String) -> void:
 		fade_mat.set_shader_parameter("alpha", v), 1.0, 0.0, 0.35)
 
 	print("main: escenario '%s' activo." % id)
+
+
+# Altura de la cabeza sentada sobre el punto del asiento (m). Calibrada con la
+# silla del consultorio: SeatSpawn esta a y=-0.77 y la escena se modelo con la
+# cabeza del paciente en y=0.
+const SEATED_HEAD_ABOVE_SEAT := 0.77
+
+
+## Ubica el rig en el asiento del escenario (marker "SeatSpawn"), simulando al
+## paciente sentado en la silla del escritorio. Recentra: desplaza el ORIGEN de
+## tracking para que la CABEZA REAL (XRCamera) caiga en la posicion de cabeza
+## sentada, sin importar donde este el usuario en su espacio fisico ni la
+## altura de su silla real. Escenarios sin SeatSpawn (ruta_noche) vuelven el
+## rig al origen del mundo.
+func _position_rig_for_scenario() -> void:
+	var seat: Node3D = null
+	if _scenario_node != null:
+		seat = _scenario_node.find_child("SeatSpawn", true, false) as Node3D
+	if seat == null:
+		xr_origin.global_transform = Transform3D.IDENTITY
+		return
+	# Primero la orientacion (yaw del marker, mirando al escritorio): rotar el
+	# origen mueve la camara, asi que la traslacion se calcula despues.
+	xr_origin.global_rotation = Vector3(0.0, seat.global_rotation.y, 0.0)
+	var head_target: Vector3 = seat.global_position \
+		+ Vector3(0.0, SEATED_HEAD_ABOVE_SEAT, 0.0)
+	xr_origin.global_position += head_target - xr_camera.global_position
+	print("main: rig sentado en SeatSpawn de '%s'." % _current_scenario_id)
 
 
 func _apply_scenario_config(cfg: Dictionary) -> void:
