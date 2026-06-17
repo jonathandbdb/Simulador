@@ -48,6 +48,8 @@ common/physics_ticks_per_second=90
 
 rendering_device/driver.windows="d3d12"
 textures/vram_compression/import_etc2_astc=true
+textures/default_filters/anisotropic_filtering_level=4.0
+textures/default_filters/texture_mipmap_bias=-0.5
 
 [shader_globals]
 

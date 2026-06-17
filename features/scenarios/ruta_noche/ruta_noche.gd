@@ -163,6 +163,22 @@ func _spawn_car() -> void:
 	for light in car.find_children("*", "Light3D", true, false):
 		light.queue_free()
 
+	# Filtrado ANISOTRÓPICO en los materiales del auto. El tablero/CarPlay se ven
+	# en ángulo oblicuo desde el asiento; con el filtro lineal simple del FBX las
+	# texturas quedan borrosas a distancia y solo nítidas pegado (se nota incluso
+	# SIN lentes). El anisotrópico mantiene la nitidez en superficies inclinadas.
+	# Materiales compartidos entre mallas -> dedup para no reasignar de más.
+	var seen_mats := {}
+	for node in car.find_children("*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		for s in range(mi.mesh.get_surface_count()):
+			var bm := mi.mesh.surface_get_material(s) as BaseMaterial3D
+			if bm != null and not seen_mats.has(bm):
+				seen_mats[bm] = true
+				bm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+
 	# Marker para que el rig VR (main.gd) recentre la CABEZA del usuario en la
 	# posición del CONDUCTOR, sin importar su altura física ni la de su silla
 	# (igual mecanismo que la silla del consultorio). El ojo del conductor queda

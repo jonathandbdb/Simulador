@@ -69,9 +69,11 @@ const SCENARIOS := {
 		"env":       "night",
 		"show_book": false,
 		"halo_threshold": 0.72,
-		# Foveation agresiva: de noche el post-proceso de glare es fill-rate
-		# bound y la periferia oscura tolera la perdida de resolucion.
-		"foveation": 3,
+		# Foveation MEDIA (2, no 3): el tablero/CarPlay del auto caen en la parte
+		# baja del FOV (periferia); con foveation agresiva (3) se renderizaban a
+		# baja resolucion y se veian borrosos. 2 mantiene legible el tablero a
+		# costa de algo de fill-rate. Subir a 3 si el framerate sufre en Quest.
+		"foveation": 2,
 	},
 }
 

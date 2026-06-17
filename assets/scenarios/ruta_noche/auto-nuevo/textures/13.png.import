@@ -3,21 +3,19 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cwlyd0cippsr0"
-path.s3tc="res://.godot/imported/13.png-b64e264cd538c68b1ab734be83b6a1d3.s3tc.ctex"
-path.etc2="res://.godot/imported/13.png-b64e264cd538c68b1ab734be83b6a1d3.etc2.ctex"
+path="res://.godot/imported/13.png-b64e264cd538c68b1ab734be83b6a1d3.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
+"vram_texture": false
 }
 
 [deps]
 
 source_file="res://assets/scenarios/ruta_noche/auto-nuevo/textures/13.png"
-dest_files=["res://.godot/imported/13.png-b64e264cd538c68b1ab734be83b6a1d3.s3tc.ctex", "res://.godot/imported/13.png-b64e264cd538c68b1ab734be83b6a1d3.etc2.ctex"]
+dest_files=["res://.godot/imported/13.png-b64e264cd538c68b1ab734be83b6a1d3.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=0
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
