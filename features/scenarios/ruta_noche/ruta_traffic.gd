@@ -17,8 +17,8 @@ extends Node3D
 ##
 ## Los autos van por el eje Z (la ruta). El paciente (origen) mira hacia -Z.
 
-const FBX := "res://autos/source/fab.fbx"
-const LIGHTS_TEX := "res://autos/textures/lights.jpg"
+const FBX := "res://assets/scenarios/ruta_noche/autos/source/fab.fbx"
+const LIGHTS_TEX := "res://assets/scenarios/ruta_noche/autos/textures/lights.jpg"
 
 ## Modelos cuyo frente la detección automática deja al revés (frente y trasera
 ## casi idénticos). Se les fuerza un giro de 180°. Clave = substring del nombre.
@@ -294,11 +294,29 @@ func _split_car_lights(body_mi: MeshInstance3D, pivot: Node3D) -> void:
 	var pivot_inv: Transform3D = pivot.transform.inverse()
 	var front := _new_lbuf()
 	var back := _new_lbuf()
-	# Centroides por cluster (frente/atrás × derecha/izquierda en espacio final)
-	# para anclar un billboard de glare a CADA luz fisica del auto.
-	var csum: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
-	var cn: Array[int] = [0, 0, 0, 0]
+	# Centroides por cluster para anclar un billboard de glare a CADA luz fisica.
+	# FRENTE: 4 clusters (alto/bajo × der/izq) -> los FAROS (fila alta) y los
+	# ROMPENIEBLAS (fila baja) reciben su PROPIO halo. ATRAS: 2 clusters (der/izq)
+	# para los pilotos. Indices: 0=fte-alto-der 1=fte-alto-izq 2=fte-bajo-der
+	# 3=fte-bajo-izq 4=atras-der 5=atras-izq.
 	var tri_count: int = (idx.size() if idx.size() > 0 else verts.size()) / 3
+
+	# Pre-pase: rango Y de las luces DELANTERAS (espacio final) para separar la fila
+	# de faros (arriba) de la de rompenieblas (abajo) por su punto medio. Si el auto
+	# trae una sola fila, ambos centroides casi coinciden -> los halos se solapan y
+	# se ve uno solo (sin artefacto); si trae dos filas, quedan dos halos separados.
+	var fy_min := INF
+	var fy_max := -INF
+	for tri in range(tri_count):
+		var av: int = idx[tri * 3] if idx.size() > 0 else tri * 3
+		var fp: Vector3 = m * verts[av]
+		if fp.z >= 0.0:
+			fy_min = minf(fy_min, fp.y)
+			fy_max = maxf(fy_max, fp.y)
+	var front_y_mid: float = (fy_min + fy_max) * 0.5
+
+	var csum: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
+	var cn: Array[int] = [0, 0, 0, 0, 0, 0]
 	for tri in range(tri_count):
 		var a: int; var b2: int; var c: int
 		if idx.size() > 0:
@@ -309,7 +327,12 @@ func _split_car_lights(body_mi: MeshInstance3D, pivot: Node3D) -> void:
 		var fpos: Vector3 = m * centroid
 		var is_front: bool = fpos.z >= 0.0
 		var t: Dictionary = front if is_front else back
-		var ci: int = (0 if is_front else 2) + (0 if fpos.x >= 0.0 else 1)
+		var ci: int
+		if is_front:
+			# Fila alta (faros) vs baja (rompenieblas) segun el punto medio en Y.
+			ci = (0 if fpos.y >= front_y_mid else 2) + (0 if fpos.x >= 0.0 else 1)
+		else:
+			ci = 4 + (0 if fpos.x >= 0.0 else 1)
 		# Acumular en espacio del PIVOT (donde se cuelga el billboard).
 		csum[ci] += pivot_inv * fpos
 		cn[ci] += 1
@@ -341,13 +364,19 @@ func _split_car_lights(body_mi: MeshInstance3D, pivot: Node3D) -> void:
 	# los rojos de sus pilotos). La direccion se pasa en espacio del pivot
 	# (donde cuelga el billboard).
 	var fwd_local: Vector3 = (pivot_inv.basis * Vector3(0.0, 0.0, 1.0)).normalized()
-	for ci in range(4):
+	for ci in range(6):
 		if cn[ci] < 2:
 			continue
 		var pos: Vector3 = csum[ci] / float(cn[ci])
 		if ci < 2:
+			# Faros (frente, fila alta): blancos, haz al frente, los mas intensos.
 			GlareSource.attach(pivot, pos, Color(1.0, 0.98, 0.92), 1.0, fwd_local)
+		elif ci < 4:
+			# Rompenieblas (frente, fila baja): blancos, haz al frente, algo menos
+			# intensos que los faros (luz auxiliar).
+			GlareSource.attach(pivot, pos, Color(1.0, 0.98, 0.92), 0.8, fwd_local)
 		else:
+			# Pilotos (atras): rojos, haz hacia atras.
 			GlareSource.attach(pivot, pos, Color(1.0, 0.06, 0.04), 0.7, -fwd_local)
 
 

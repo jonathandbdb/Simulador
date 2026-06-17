@@ -51,6 +51,9 @@ const SCENARIOS := {
 	"consultorio": {
 		"scene":     "res://features/scenarios/consultorio/consultorio.tscn",
 		"halos":     false,
+		# El astigmatismo (trazo sobre las luces) no aplica en la escena del libro:
+		# es un test de lectura de dia, sin fuentes que deban deslumbrar.
+		"astigmatism": false,
 		"env":       "day",
 		"show_book": true,
 		# Umbral alto: de dia solo la lampara de escritorio (muy brillante) genera
@@ -62,6 +65,7 @@ const SCENARIOS := {
 	"ruta_noche": {
 		"scene":     "res://features/scenarios/ruta_noche/ruta_noche.tscn",
 		"halos":     true,
+		"astigmatism": true,
 		"env":       "night",
 		"show_book": false,
 		"halo_threshold": 0.72,
@@ -182,6 +186,9 @@ func _ready() -> void:
 	if scenario_container.get_child_count() > 0:
 		_scenario_node = scenario_container.get_child(0) as Node3D
 
+	# Gate de astigmatismo para la escena inicial (no pasa por load_scenario).
+	_astig_allowed = SCENARIOS.get(_current_scenario_id, {}).get("astigmatism", true)
+
 	# Sentar al paciente en la silla del escenario inicial. Diferido: el primer
 	# pose valido del HMD llega unos frames despues de _ready.
 	get_tree().create_timer(0.6).timeout.connect(_position_rig_for_scenario)
@@ -260,16 +267,15 @@ func _on_streaming_command_received(cmd: Dictionary, peer_id: int) -> void:
 			DataManager.override_params(params, eye2)
 			print("main: tablet ajusto %d param(s) en ojo '%s'" % [params.size(), eye2])
 		"set_astigmatism":
-			# Astigmatismo: canal independiente del catalogo de lentes.
-			# Campos: eye ("left"|"right"|"both"), enabled (bool),
-			#         magnitude (float px), angle (float rad).
-			var eye_a: String  = cmd.get("eye", "both")
+			# Astigmatismo: ajuste GLOBAL independiente del catalogo de lentes. El
+			# campo "eye" del comando se IGNORA (no es por ojo).
+			# Campos usados: enabled (bool), magnitude (float px), angle (float rad).
 			var enabled: bool  = cmd.get("enabled", false)
 			var magnitude: float = float(cmd.get("magnitude", 0.0))
 			var angle: float     = float(cmd.get("angle", 0.0))
-			set_astigmatism(eye_a, enabled, magnitude, angle)
-			print("main: tablet astig eye='%s' enabled=%s mag=%.1f ang=%.2f" % [
-				eye_a, str(enabled), magnitude, angle])
+			set_astigmatism(enabled, magnitude, angle)
+			print("main: tablet astig (global) enabled=%s mag=%.1f ang=%.2f" % [
+				str(enabled), magnitude, angle])
 		"load_scenario":
 			# Cambio de escena desde la tablet.
 			# Campos: scenario (string id, ver SCENARIOS).
@@ -324,12 +330,14 @@ const SHADER_PARAM_MAP := {
 	"destello_rayos":     ["destello_rayos_l",   "destello_rayos_r"],
 }
 
-# Estado de astigmatismo (independiente del catalogo de lentes).
-# Se controla desde la tablet con el comando "set_astigmatism".
-var _astig_state: Dictionary = {
-	"left":  {"enabled": false, "magnitude": 0.0, "angle": 0.0},
-	"right": {"enabled": false, "magnitude": 0.0, "angle": 0.0},
-}
+# Estado de astigmatismo: ajuste GLOBAL (un solo valor para ambos ojos, NO por
+# ojo) e independiente del catalogo de lentes. Se controla desde la tablet con el
+# comando "set_astigmatism". El efecto lo dibujan los billboards de GlareSource
+# (no el post-proceso), asi aparece en TODA lente — ver glare_billboard.gdshader.
+var _astig_state: Dictionary = {"enabled": false, "magnitude": 0.0, "angle": 0.0}
+# Gate por escena: la escena del libro (consultorio) anula el astigmatismo sin
+# perder el estado. Se setea en _apply_scenario_config segun SCENARIOS.astigmatism.
+var _astig_allowed: bool = false
 
 
 func _apply_initial_lens() -> void:
@@ -415,27 +423,25 @@ func toggle_halos() -> void:
 	set_halos_enabled(not halos_enabled)
 
 
-## Configura el astigmatismo por ojo. Independiente del catalogo de lentes.
-## eye: "left" | "right" | "both".
-## magnitude: longitud del streak en px (0 = apagado).
+## Configura el astigmatismo. Ajuste GLOBAL (afecta ambos ojos por igual) e
+## independiente del catalogo de lentes. El efecto lo dibujan los billboards de
+## GlareSource sobre cada fuente de luz, asi se ve con cualquier lente.
+## magnitude: longitud del trazo en px (rango tablet 0..50; 0 = apagado).
 ## angle: orientacion del eje en radianes (0 = horizontal).
-func set_astigmatism(eye: String, enabled: bool, magnitude: float, angle: float) -> void:
-	var mat := post_process_quad.get_active_material(0) as ShaderMaterial
-	if mat == null:
-		return
-	var eyes: Array[String] = []
-	if eye == "both":
-		eyes = ["left", "right"]
-	else:
-		eyes = [eye]
-	for e in eyes:
-		_astig_state[e]["enabled"]   = enabled
-		_astig_state[e]["magnitude"] = magnitude
-		_astig_state[e]["angle"]     = angle
-		var suffix: String = "_l" if e == "left" else "_r"
-		mat.set_shader_parameter("astig_enabled"   + suffix, 1.0 if enabled else 0.0)
-		mat.set_shader_parameter("astig_magnitude" + suffix, magnitude)
-		mat.set_shader_parameter("astig_angle"     + suffix, angle)
+func set_astigmatism(enabled: bool, magnitude: float, angle: float) -> void:
+	_astig_state["enabled"]   = enabled
+	_astig_state["magnitude"] = magnitude
+	_astig_state["angle"]     = angle
+	_push_astig_to_glare()
+
+
+## Empuja el estado de astigmatismo a los globals del glare (billboards). El gate
+## _astig_allowed lo anula en la escena del libro sin perder el estado guardado.
+func _push_astig_to_glare() -> void:
+	GlareSource.set_astig_globals(
+		_astig_state["enabled"] and _astig_allowed,
+		float(_astig_state["magnitude"]) / 50.0,
+		float(_astig_state["angle"]))
 
 
 func _update_lens_hud() -> void:
@@ -565,6 +571,12 @@ func _position_rig_for_scenario() -> void:
 func _apply_scenario_config(cfg: Dictionary) -> void:
 	# Halos / destello.
 	set_halos_enabled(cfg.get("halos", false))
+
+	# Astigmatismo permitido en esta escena (la del libro lo anula). Reaplicar el
+	# estado guardado segun el nuevo gate: al volver a una escena que lo permite,
+	# el astigmatismo configurado en la tablet reaparece sin reconfigurar.
+	_astig_allowed = cfg.get("astigmatism", true)
+	_push_astig_to_glare()
 
 	# Umbral de brillo a partir del cual una fuente genera halo/destello/streak.
 	# Es por escena: de noche se baja para que todas las luces lo superen.

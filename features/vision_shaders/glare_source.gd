@@ -1,7 +1,7 @@
 class_name GlareSource
 extends MeshInstance3D
 ## Billboard de glare procedural anclado a una fuente de luz real (farola,
-## faro, piloto trasero, esfera del lens_lab).
+## faro, piloto trasero).
 ##
 ## Reemplaza al gather screen-space de halo/starburst, que dependia de los
 ## mipmaps del backbuffer (no se generan en el Quest/multiview). Ver
@@ -54,7 +54,7 @@ static func attach(parent: Node3D, local_pos: Vector3, color: Color,
 
 
 ## Mapea los parametros de lente de un ojo a los shader globals del glare.
-## La llaman main.gd y lens_lab.gd desde vision_state_changed. `enabled`
+## La llama main.gd desde vision_state_changed. `enabled`
 ## refleja halos_enabled del escenario (consultorio de dia = off).
 const GLOBAL_MAP := {
 	"halo_intensity":     ["glare_halo_l",  "glare_halo_r"],
@@ -69,3 +69,12 @@ static func set_eye_globals(eye: String, params: Dictionary, enabled: bool) -> v
 		if params.has(key):
 			var value := float(params[key]) if enabled else 0.0
 			RenderingServer.global_shader_parameter_set(GLOBAL_MAP[key][eye_idx], value)
+
+
+## Astigmatismo: ajuste GLOBAL (un solo valor para ambos ojos, NO por ojo). Lo
+## llama main.gd desde set_astigmatism. magnitude_norm: 0..1 (intensidad/largo del
+## trazo); angle: eje en radianes. enabled=false apaga el efecto (mag -> 0).
+static func set_astig_globals(enabled: bool, magnitude_norm: float, angle: float) -> void:
+	var mag := clampf(magnitude_norm, 0.0, 1.0) if enabled else 0.0
+	RenderingServer.global_shader_parameter_set("glare_astig", mag)
+	RenderingServer.global_shader_parameter_set("glare_astig_angle", angle)

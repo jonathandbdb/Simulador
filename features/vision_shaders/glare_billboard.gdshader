@@ -34,6 +34,15 @@ global uniform float glare_star_r;
 global uniform float glare_rays_l;
 global uniform float glare_rays_r;
 
+// Astigmatismo: ajuste GLOBAL (un solo valor para ambos ojos, NO se ramifica por
+// VIEW_INDEX como halo/star). Lo setea main.gd via GlareSource.set_astig_globals
+// desde el comando set_astigmatism de la tablet. cero = sin efecto. Vive aca (y no
+// en el post-proceso) para que el trazo aparezca en TODA lente: el gather
+// screen-space solo veia luz donde el billboard de halo ya habia iluminado, asi
+// que en lentes limpias (monofocal, sin halo) el astigmatismo no se veia.
+global uniform float glare_astig;        // 0..1 intensidad/largo del trazo
+global uniform float glare_astig_angle;  // eje en radianes (0 = horizontal)
+
 // Fuente concreta (por instancia, material compartido). OJO: "source_color"
 // es palabra reservada de hint en gdshader — usar src_*.
 instance uniform vec3 src_color = vec3(1.0, 1.0, 1.0);
@@ -51,6 +60,15 @@ instance uniform vec3 src_dir = vec3(0.0);
 const float HALO_ANG_RADIUS = 0.10;   // radio del halo a halo=1 (sin pupila)
 const float PUPIL_GAIN      = 1.7;    // dilatacion pupilar agranda el halo
 const float STAR_ANG_RADIUS = 0.22;   // largo del rayo a star=1
+// Astigmatismo (replica el efecto del post-proceso original, que era el "correcto"):
+// un smear 1D de la luz a lo largo del eje. El original NO ensanchaba perpendicular
+// (la luz se estira, no se engorda) -> ancho fino; y el brillo a lo largo era una
+// GAUSSIANA con SIGMA=0.45. Por eso se veia como un RAYO que cruza la luz, no como
+// un halo ovalado. ASTIG_WIDTH = grosor (mas chico = mas fino/rayo); ASTIG_GAIN es
+// la misma ganancia 2.2 del original.
+const float ASTIG_ANG_RADIUS = 0.12;  // largo (a cada lado) del rayo a astig=1
+const float ASTIG_WIDTH      = 0.02;  // grosor perpendicular -> rayo fino, no halo
+const float ASTIG_GAIN       = 2.2;   // ganancia del trazo (igual que el original)
 const float RING_POS        = 0.62;   // posicion del anillo difractivo (0..1)
 const float RING_WIDTH      = 0.11;
 const float DIST_REF_M      = 8.0;    // distancia con brillo nominal
@@ -64,6 +82,9 @@ varying float v_pupil;    // dilatacion pupilar
 varying float v_fade;     // atenuacion por distancia/energia
 varying float v_halo_frac; // radio del halo relativo al quad (0..1)
 varying float v_star_frac; // largo del rayo relativo al quad (0..1)
+varying float v_astig;       // intensidad del astigmatismo (global)
+varying float v_astig_angle; // eje del astigmatismo (rad)
+varying float v_astig_frac;  // largo del trazo relativo al quad (0..1)
 
 float hash11(float p) {
 	p = fract(p * 0.1031);
@@ -77,6 +98,9 @@ void vertex() {
 	v_star  = clamp(left ? glare_star_l  : glare_star_r, 0.0, 1.0);
 	v_rays  = left ? glare_rays_l : glare_rays_r;
 	v_pupil = clamp(left ? glare_pupil_l : glare_pupil_r, 0.0, 1.0);
+	// Astigmatismo GLOBAL: mismo valor en ambos ojos (no depende de VIEW_INDEX).
+	v_astig = clamp(glare_astig, 0.0, 1.0);
+	v_astig_angle = glare_astig_angle;
 
 	vec3 origin = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 	vec3 cam_pos = INV_VIEW_MATRIX[3].xyz;
@@ -95,17 +119,22 @@ void vertex() {
 	float pupil_scale = mix(1.0, PUPIL_GAIN, v_pupil);
 	float halo_r = HALO_ANG_RADIUS * v_halo * pupil_scale;
 	float star_r = STAR_ANG_RADIUS * v_star;
-	float ang_max = max(halo_r, star_r);
+	float astig_r = ASTIG_ANG_RADIUS * v_astig;
+	// astig_r entra en ang_max para que el quad NO colapse cuando la lente no
+	// tiene halo/star pero si hay astigmatismo (asi se ve en toda lente).
+	float ang_max = max(max(halo_r, star_r), astig_r);
 
 	if (ang_max < 0.004 || facing < 0.01) {
 		// Sin efecto en este ojo: colapsar el quad (cero fragmentos).
 		POSITION = vec4(0.0, 0.0, 2.0, 1.0);
 		v_halo_frac = 0.0;
 		v_star_frac = 0.0;
+		v_astig_frac = 0.0;
 		v_fade = 0.0;
 	} else {
 		v_halo_frac = halo_r / ang_max;
 		v_star_frac = star_r / ang_max;
+		v_astig_frac = astig_r / ang_max;
 		// Brillo: cae ~1/d respecto de la referencia (de cerca deslumbra mas),
 		// y se apaga si el haz no mira a la camara (facing).
 		v_fade = clamp(src_energy * DIST_REF_M / dist, 0.0, 1.0) * facing;
@@ -153,6 +182,21 @@ void fragment() {
 		float rs = r / max(ray_len, 0.001);
 		float falloff = pow(max(1.0 - rs, 0.0), 1.3);
 		total += spoke * falloff * mix(0.5, 1.0, h2) * v_star * 1.3;
+	}
+
+	// --- Astigmatismo: trazo direccional fino, simetrico en ±eje ---
+	// Reproduce el perfil del post-proceso original (astigmatism_streak): brillo
+	// GAUSSIANO a lo largo del eje (SIGMA=0.45 -> 1/(2*0.45^2)=2.469), truncado en
+	// los extremos, y FINO en perpendicular (la luz se estira, no se ensancha).
+	if (v_astig_frac > 0.001) {
+		float a = v_astig_angle;
+		vec2 q = vec2(p.x * cos(a) + p.y * sin(a), -p.x * sin(a) + p.y * cos(a));
+		float along  = q.x / max(v_astig_frac, 0.001);   // -1..1 a lo largo del eje
+		float across = q.y;                               // perpendicular al eje
+		float prof = exp(-along * along * 2.469)
+				* (1.0 - smoothstep(0.95, 1.0, abs(along)));   // gaussiana truncada
+		float thin = exp(-(across * across) / (ASTIG_WIDTH * ASTIG_WIDTH));
+		total += prof * thin * v_astig * ASTIG_GAIN;
 	}
 
 	// Ventana de borde: el glow gaussiano NO llega a 0 en el borde del quad

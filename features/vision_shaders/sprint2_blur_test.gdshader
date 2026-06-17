@@ -70,17 +70,11 @@ uniform float destello_rayos_l     : hint_range(0.0, 12.0) = 0.0;
 uniform float destello_rayos_r     : hint_range(0.0, 12.0) = 0.0;
 
 // === Astigmatismo ===
-// Blur 1D direccional: estira los puntos brillantes a lo largo del eje.
-// astig_enabled: toggle por ojo (1.0 = activo, 0.0 = inactivo).
-// bool uniforms no son soportados en Vulkan mobile (Quest) — se usa float.
-// astig_magnitude: largo del streak en px (0 = apagado).
-// astig_angle: angulo del eje en radianes (0 = horizontal).
-uniform float astig_enabled_l   : hint_range(0.0, 1.0) = 0.0;
-uniform float astig_enabled_r   : hint_range(0.0, 1.0) = 0.0;
-uniform float astig_magnitude_l : hint_range(0.0, 160.0) = 0.0;
-uniform float astig_magnitude_r : hint_range(0.0, 160.0) = 0.0;
-uniform float astig_angle_l     : hint_range(0.0, 3.14159) = 0.0;
-uniform float astig_angle_r     : hint_range(0.0, 3.14159) = 0.0;
+// El astigmatismo ya NO vive aca: se dibuja con los billboards de GlareSource
+// (glare_billboard.gdshader, globals glare_astig / glare_astig_angle). El gather
+// screen-space dependia de que ya hubiera luz brillante en pantalla (la del halo),
+// asi que en lentes limpias (monofocal, sin halo) no se veia. Ver
+// features/vision_shaders/glare_billboard.gdshader.
 
 // === Perdida de contraste (sensibilidad al contraste reducida) ===
 // Caracteristica de IOLs multifocales/trifocales: la luz se reparte entre
@@ -401,40 +395,6 @@ vec3 starburst(vec2 uv, vec2 texel, float intensity, float num_rays, mat4 inv_pr
 	return clamp(accum, vec3(0.0), vec3(2.0)) * intensity;
 }
 
-// Astigmatismo: blur direccional 1D CONTINUO (convolucion gaussiana a lo largo
-// del eje). La version anterior SUMABA el color de la fuente en posiciones
-// discretas, por lo que se veian copias de la fuente (circulitos). Aca hacemos
-// un promedio ponderado gaussiano del "exceso de luz" sobre el eje: la fuente se
-// ESPARCE en un trazo suave que se desvanece en los extremos, sin repeticiones.
-vec3 astigmatism_streak(vec2 uv, vec2 texel, float magnitude_px, float angle) {
-	if (magnitude_px < 0.5) {
-		return vec3(0.0);
-	}
-	vec2 axis = vec2(cos(angle), sin(angle));
-	// 18 muestras con mip LEVE: el mip alto emborrona la fuente y le quita brillo
-	// (el streak se apaga); un mip bajo solo tapa los huecos del muestreo sin matar
-	// la fuente. Gaussiana -> trazo continuo sin escalones ni circulitos.
-	const int N = 13;
-	const float SIGMA = 0.45;
-	float inv_above = 1.0 / max(1.0 - halo_threshold, 0.001);
-	float inv2s2 = 1.0 / (2.0 * SIGMA * SIGMA);
-	float lod = clamp(log2(max(magnitude_px / float(N), 1.0)) - 1.0, 0.0, 1.5);
-
-	vec3 streak = vec3(0.0);
-	float wsum = 0.0;
-	for (int i = -N; i <= N; i++) {
-		float t = float(i) / float(N);
-		float gw = exp(-t * t * inv2s2);
-		vec2 suv = uv + axis * t * magnitude_px * texel;
-		vec3 c = textureLod(screen_texture, suv, lod).rgb;
-		float lum = src_brightness(c);
-		float excess = max(lum - halo_threshold, 0.0) * inv_above;
-		streak += clamp(c, 0.0, 1.0) * (excess * gw);
-		wsum += gw;
-	}
-	return clamp(streak / max(wsum, 0.001), vec3(0.0), vec3(2.0)) * 2.2;
-}
-
 // Factor (0..1) para suprimir el glare sobre SUPERFICIES brillantes extensas
 // (calzada/cebra iluminada por las farolas): solo las FUENTES de luz puntuales
 // (faros, semaforo, farolas) deben deslumbrar, no una superficie reflectante.
@@ -489,9 +449,6 @@ void fragment() {
 	float contrast_amount;
 	float destello_int;
 	float destello_n;
-	float astig_on;
-	float astig_mag;
-	float astig_ang;
 	if (VIEW_INDEX == VIEW_MONO_LEFT) {
 		blur_amount    = blur_from_focus(eff_dist, foco_lejos_l, foco_intermedio_l,
 			foco_cerca_l, profundidad_foco_l, desenfoque_max_l);
@@ -500,9 +457,6 @@ void fragment() {
 		contrast_amount = contrast_loss_l;
 		destello_int   = destello_intensity_l;
 		destello_n     = destello_rayos_l;
-		astig_on       = astig_enabled_l;
-		astig_mag      = astig_magnitude_l;
-		astig_ang      = astig_angle_l;
 	} else {
 		blur_amount    = blur_from_focus(eff_dist, foco_lejos_r, foco_intermedio_r,
 			foco_cerca_r, profundidad_foco_r, desenfoque_max_r);
@@ -511,9 +465,6 @@ void fragment() {
 		contrast_amount = contrast_loss_r;
 		destello_int   = destello_intensity_r;
 		destello_n     = destello_rayos_r;
-		astig_on       = astig_enabled_r;
-		astig_mag      = astig_magnitude_r;
-		astig_ang      = astig_angle_r;
 	}
 	blur_amount = clamp(blur_amount, 0.0, 1.0);
 
@@ -556,8 +507,7 @@ void fragment() {
 	// resultado (antes surf se computaba y se multiplicaba por ceros).
 	bool has_halo  = halo_amount > 0.01;
 	bool has_star  = destello_int > 0.01 && destello_n >= 1.0;
-	bool has_astig = astig_on > 0.5 && astig_mag >= 0.5;
-	if (has_halo || has_star || has_astig) {
+	if (has_halo || has_star) {
 		// Supresion de superficies extensas: el glare solo nace de fuentes
 		// puntuales, no de la calzada/cebra iluminada (que de noche satura).
 		float surf = surface_factor(uv, texel);
@@ -566,9 +516,6 @@ void fragment() {
 		}
 		if (has_star) {
 			color += starburst(uv, texel, destello_int, destello_n, INV_PROJECTION_MATRIX) * surf;
-		}
-		if (has_astig) {
-			color += astigmatism_streak(uv, texel, astig_mag, astig_ang) * surf;
 		}
 	}
 

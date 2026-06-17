@@ -15,14 +15,20 @@ extends Node3D
 ## Se instancia dentro de main.tscn (rig VR con post-proceso + lentes) vía el
 ## ScenarioManager. Corrido solo en PC, se autogenera cámara + entorno nocturno.
 
-const ROAD_OBJ := "res://road2/source/road.obj"
-const LAMP_OBJ := "res://street-light/source/Untitled_3/Untitled_3.obj"
+const ROAD_OBJ := "res://assets/scenarios/ruta_noche/road2/source/road.obj"
+const LAMP_OBJ := "res://assets/scenarios/ruta_noche/street-light/source/Untitled_3/Untitled_3.obj"
+const CAR_MODEL := "res://assets/scenarios/ruta_noche/auto-nuevo/interior.fbx"
 
 @export_group("Carretera")
 ## Escala uniforme aplicada al modelo (mismo factor para ruta y farolas).
 @export var scale_factor: float = 0.016
 ## Cantidad de tiles enlazados a lo largo de la ruta.
 @export var tiles: int = 3
+## Brillo propio (emisión) de las marcas viales (línea central punteada + bordes)
+## para que se vean a lo largo de TODA la ruta de noche, no solo las primeras: el
+## asfalto lejano queda muy oscuro y los guiones desaparecían tras el tercero.
+## 0 = sin autoiluminación. Solo afecta a las marcas blancas (ver máscara abajo).
+@export var line_emission: float = 0.6
 
 @export_group("Farolas")
 ## Separación entre farolas a lo largo de la ruta (metros de mundo).
@@ -42,6 +48,40 @@ const LAMP_OBJ := "res://street-light/source/Untitled_3/Untitled_3.obj"
 @export var lamp_energy: float = 8.0
 ## Alcance del SpotLight.
 @export var lamp_range_m: float = 16.0
+
+@export_group("Auto del conductor")
+## Escala uniforme del modelo del auto. El modelo viene a ~0.6× de un auto real;
+## ~1.5 lo lleva a proporciones reales (ancho de cabina ~1.6 m) para que un
+## usuario sentado quepa cómodo. Es la CABINA interior (tablero, volante, consola,
+## displays): modelo "simple", sin techo/pilares/vidrios/puertas.
+@export var car_scale: float = 1.5
+## Punto del MODELO (m, sin escalar) que representa el OJO del conductor. El auto
+## se posiciona para que este punto caiga SOBRE el paciente (origen) en horizontal
+## y el ojo quede a ~0.97 m del asfalto (a esta escala). Derivado de la geometría:
+## volante en (-0.17, 0.52, -0.27). El frente mira a -Z, así que +X = derecha:
+## subir X corre la cámara a la derecha; bajar Y baja la cámara. Conducción IZQ.
+@export var driver_eye_local: Vector3 = Vector3(-0.13, 0.72, 0.0)
+
+@export_subgroup("Luz del tablero (torpedo)")
+## Luz suave que ilumina el tablero/torpedo para verlo de noche sin quemar la escena.
+@export var dash_light_enabled: bool = true
+## Energía de la luz del tablero (suave: no debe lavar la calzada ni disparar halos).
+@export var dash_light_energy: float = 2.0
+## Alcance (m) de la luz del tablero (corto: que quede sobre el torpedo).
+@export var dash_light_range_m: float = 1.4
+## Color de la luz del tablero (cálido, tipo iluminación de cabina).
+@export var dash_light_color: Color = Color(1.0, 0.93, 0.82)
+## Posición de la luz RELATIVA al ojo del conductor (m, espacio mundo):
+## +x derecha, +y arriba, -z adelante (hacia el torpedo).
+@export var dash_light_offset: Vector3 = Vector3(0.22, -0.02, -0.42)
+
+# Piso del modelo del auto (AABB y-min en espacio de modelo): se apoya sobre el
+# asfalto (y=0). Medido del modelo (min y = 0.0718).
+const CAR_FLOOR_LOCAL_Y := 0.0718
+# Altura cabeza-sobre-asiento que usa main.gd (_position_rig_for_scenario) para
+# recentrar el HMD sobre el marker "SeatSpawn". DEBE coincidir con
+# main.gd:SEATED_HEAD_ABOVE_SEAT (0.77).
+const SEATED_HEAD_ABOVE_SEAT := 0.77
 
 # Ventana (en unidades de modelo) alrededor de z=0 para recortar UN módulo de
 # farola de la hilera. El modelo tiene farolas cada ~2040 u; 180 aísla la de z≈0.
@@ -75,6 +115,7 @@ func _ready() -> void:
 	_spawn_moonlight()
 	_spawn_lamps(lamp_mesh, tile_len, road_half_x)
 	_spawn_traffic(tile_len, road_half_x)
+	_spawn_car()
 	_setup_standalone_preview()
 
 
@@ -86,6 +127,67 @@ func _spawn_traffic(tile_len: float, road_half_x: float) -> void:
 	traffic.set("road_half_z", tile_len * float(tiles) * 0.5)
 	traffic.set("lane_x", road_half_x * 0.32)
 	add_child(traffic)
+
+
+## Auto del conductor: el paciente "maneja" desde adentro. El modelo ya mira a -Z
+## (el frente/tablero apunta a -Z), igual que el paciente, así que NO se rota. Se
+## escala a proporciones reales (ver car_scale) y se ubica para que el ASIENTO DEL
+## CONDUCTOR (lado izquierdo, detrás del volante) quede SOBRE el origen del mundo
+## —donde ya está el paciente— con el piso de la cabina sobre el asfalto. El
+## paciente conserva su ubicación actual: solo se arma el auto a su alrededor.
+func _spawn_car() -> void:
+	var packed := load(CAR_MODEL) as PackedScene
+	if packed == null:
+		push_warning("RutaNoche: no se pudo cargar el auto (%s)." % CAR_MODEL)
+		return
+	var car := packed.instantiate() as Node3D
+	if car == null:
+		push_warning("RutaNoche: el auto no instanció un Node3D.")
+		return
+	car.name = "Car"
+	car.scale = Vector3.ONE * car_scale
+	# Sin rotación (el frente ya apunta a -Z). Traslación tal que el ojo del
+	# conductor quede en (0, *, 0) horizontal y el piso del auto sobre y=0:
+	#   pos = -scale * eye    (en X,Z; lleva el ojo al origen)
+	#   pos.y = -scale * piso (apoya la cabina sobre el asfalto)
+	car.position = Vector3(
+		-car_scale * driver_eye_local.x,
+		-car_scale * CAR_FLOOR_LOCAL_Y,
+		-car_scale * driver_eye_local.z)
+	add_child(car)
+
+	# Apagar cualquier luz que traiga el modelo: de noche una luz embebida (p.ej.
+	# el GLB anterior traía un point light de intensidad ~54000) quemaría la
+	# imagen. La iluminación la dan la luna + las farolas; la cabina queda en
+	# penumbra realista. (Este FBX no trae luces, pero queda robusto ante cambios.)
+	for light in car.find_children("*", "Light3D", true, false):
+		light.queue_free()
+
+	# Marker para que el rig VR (main.gd) recentre la CABEZA del usuario en la
+	# posición del CONDUCTOR, sin importar su altura física ni la de su silla
+	# (igual mecanismo que la silla del consultorio). El ojo del conductor queda
+	# en y = scale·(eye.y - piso); el marker va 0.77 m por debajo (SEATED_HEAD_
+	# ABOVE_SEAT) y en x,z = 0, así el paciente CONSERVA su ubicación (centro de
+	# la ruta) y sólo se fija su pose dentro del auto.
+	var driver_eye_world_y := car_scale * (driver_eye_local.y - CAR_FLOOR_LOCAL_Y)
+	var seat := Marker3D.new()
+	seat.name = "SeatSpawn"
+	seat.position = Vector3(0.0, driver_eye_world_y - SEATED_HEAD_ABOVE_SEAT, 0.0)
+	add_child(seat)
+
+	# Luz suave del tablero (torpedo): omni de alcance corto sobre el salpicadero
+	# para verlo de noche. Va en la ESCENA (sin escala) para que su alcance NO
+	# herede el ×1.5 del auto. Energía baja para no lavar la calzada ni disparar
+	# el halo del post-proceso (umbral nocturno 0.72). Posición = ojo + offset.
+	if dash_light_enabled:
+		var dash := OmniLight3D.new()
+		dash.name = "DashLight"
+		dash.light_color = dash_light_color
+		dash.light_energy = dash_light_energy
+		dash.omni_range = dash_light_range_m
+		dash.shadow_enabled = false
+		dash.position = Vector3(0.0, driver_eye_world_y, 0.0) + dash_light_offset
+		add_child(dash)
 
 
 ## Luz de luna tenue (sin sombra) para que el asfalto sea apenas visible de noche
@@ -105,24 +207,41 @@ func _spawn_moonlight() -> void:
 # ----------------------------------------------------------------------
 func _build_materials() -> void:
 	_road_mat = StandardMaterial3D.new()
-	_road_mat.albedo_texture = load("res://road2/textures/road_Polygon_1_BaseColor.png")
+	_road_mat.albedo_texture = load("res://assets/scenarios/ruta_noche/road2/textures/road_Polygon_1_BaseColor.png")
 	_road_mat.normal_enabled = true
-	_road_mat.normal_texture = load("res://road2/textures/road_Polygon_1_Normal.png")
-	_road_mat.roughness_texture = load("res://road2/textures/road_Polygon_1_Roughness.png")
+	_road_mat.normal_texture = load("res://assets/scenarios/ruta_noche/road2/textures/road_Polygon_1_Normal.png")
+	_road_mat.roughness_texture = load("res://assets/scenarios/ruta_noche/road2/textures/road_Polygon_1_Roughness.png")
+
+	# Marcas viales autoiluminadas: de noche el asfalto lejano queda muy oscuro y la
+	# línea central se perdía tras el tercer guión. Una máscara que solo prende los
+	# píxeles BLANCOS de la textura (línea central + bordes; generada offline desde
+	# el BaseColor con min(r,g,b)>0.55 -> road_line_emission_mask.png) hace que esas
+	# marcas brillen y se vean a lo largo de toda la ruta, SIN levantar el asfalto.
+	# EMISSION_OP_MULTIPLY es clave: la emisión = color*energía*máscara, así el
+	# asfalto (máscara=0) no emite. En ADD (default) el color se sumaría a TODA la
+	# superficie y lavaría la calzada entera.
+	if line_emission > 0.0:
+		_road_mat.emission_enabled = true
+		_road_mat.emission_texture = load("res://assets/scenarios/ruta_noche/road2/textures/road_line_emission_mask.png")
+		_road_mat.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+		# Gris (no blanco puro): la pintura vial luce desgastada/realista de noche y
+		# no "relumbra". El brillo final = este color * line_emission.
+		_road_mat.emission = Color(0.6, 0.6, 0.6)
+		_road_mat.emission_energy_multiplier = line_emission
 
 	_lamp_metal_mat = StandardMaterial3D.new()
-	_lamp_metal_mat.albedo_texture = load("res://street-light/textures/Untitled_1_DefaultMaterial_BaseColor.png")
-	_lamp_metal_mat.metallic_texture = load("res://street-light/textures/Untitled_1_DefaultMaterial_Metallic.png")
-	_lamp_metal_mat.roughness_texture = load("res://street-light/textures/Untitled_1_DefaultMaterial_Roughness.png")
+	_lamp_metal_mat.albedo_texture = load("res://assets/scenarios/ruta_noche/street-light/textures/Untitled_1_DefaultMaterial_BaseColor.png")
+	_lamp_metal_mat.metallic_texture = load("res://assets/scenarios/ruta_noche/street-light/textures/Untitled_1_DefaultMaterial_Metallic.png")
+	_lamp_metal_mat.roughness_texture = load("res://assets/scenarios/ruta_noche/street-light/textures/Untitled_1_DefaultMaterial_Roughness.png")
 	_lamp_metal_mat.normal_enabled = true
-	_lamp_metal_mat.normal_texture = load("res://street-light/textures/Untitled_1_DefaultMaterial_Normal.png")
+	_lamp_metal_mat.normal_texture = load("res://assets/scenarios/ruta_noche/street-light/textures/Untitled_1_DefaultMaterial_Normal.png")
 
 	# Luminaria: emisiva (em.png marca en blanco la zona que brilla). Es la fuente
 	# de los halos: cuanto más alta la emisión, más supera el umbral del shader.
 	_lamp_lum_mat = StandardMaterial3D.new()
-	_lamp_lum_mat.albedo_texture = load("res://street-light/textures/BaseColor.png")
+	_lamp_lum_mat.albedo_texture = load("res://assets/scenarios/ruta_noche/street-light/textures/BaseColor.png")
 	_lamp_lum_mat.emission_enabled = true
-	_lamp_lum_mat.emission_texture = load("res://street-light/textures/em.png")
+	_lamp_lum_mat.emission_texture = load("res://assets/scenarios/ruta_noche/street-light/textures/em.png")
 	_lamp_lum_mat.emission_energy_multiplier = lamp_emission
 
 
@@ -342,7 +461,10 @@ func _setup_standalone_preview() -> void:
 
 	var cam := Camera3D.new()
 	cam.name = "DebugCamera"
-	cam.position = Vector3(0.0, 1.2, 0.0)
+	# A la altura del ojo del conductor (mismo punto que recentra el rig VR), para
+	# que el preview en PC muestre la POV del conductor.
+	var eye_y := car_scale * (driver_eye_local.y - CAR_FLOOR_LOCAL_Y)
+	cam.position = Vector3(0.0, eye_y, 0.0)
 	cam.rotation_degrees = Vector3(-3.0, 0.0, 0.0)
 	cam.current = true
 	add_child(cam)
