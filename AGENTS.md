@@ -1,186 +1,64 @@
-# AGENTS.md — Simulador VR Oftalmológico
+# AGENTS.md — Brief del Simulador VR Oftalmológico
 
-## Sobre el proyecto
+> **Este archivo es el brief canónico para agentes.** Si sos un subagente del enjambre (`blender-modeler`, `godot-builder`, `scene-verifier`, `project-explorer`) **leelo primero**: te da el mapa del proyecto, el estado real y las convenciones. Es la fuente de verdad agent-facing y se mantiene actualizado. Identificadores en **inglés**, comentarios en **español**.
 
-Simulador de visión oftalmológica en VR para Meta Quest, construido con **Godot 4.6.3 + OpenXR**. Permite a médicos y pacientes experimentar cómo se ve el mundo a través de diferentes lentes intraoculares (monofocales, multifocales, PanOptix, Vivity), con capacidad de aplicar efectos distintos a cada ojo (modo "Blend" / monovisión).
+## Qué es
 
-El proyecto está en **fase de diseño**. No se ha escrito código todavía. Toda la planificación y especificación vive en la carpeta `context/`.
+Simulador de visión oftalmológica en **VR** para **Meta Quest 3** (Quest 2 best-effort), construido con **Godot 4.6.x + OpenXR** (renderer Forward+, multiview). Permite experimentar cómo se ve el mundo a través de distintas lentes intraoculares (monofocal, multifocal, PanOptix, Vivity), con efectos **independientes por ojo** (modo blend / monovisión). Incluye backend FastAPI, app de tablet de control (también en Godot), licencias y actualizaciones OTA.
 
----
+## Estado actual (lo más importante)
 
-## Estructura del proyecto
+- **Sprints 0–8 CERRADOS.** Corre end-to-end: OpenXR estéreo con shaders de visión asimétricos por-ojo (halo + DoF), catálogo de lentes sincronizado desde backend, transición día/noche, streaming a tablet, descubrimiento LAN. Backend completo (FastAPI + Postgres + MinIO + Caddy) con panel admin. App de tablet operativa.
+- **Sprint 9 (F4 licencias) es el próximo.** Sprint 10 (escenario consultorio inmersivo) está en progreso parcial.
+- **El proyecto YA tiene código** — no estás en fase de diseño. No re-debatas decisiones bloqueadas.
 
-```
-simulador/
-├── project.godot              # Config del proyecto Godot (Forward+, D3D12, Jolt Physics)
-├── icon.svg                   # Icono del proyecto
-├── .editorconfig
-├── .gitattributes
-├── .gitignore
-├── AGENTS.md                  # ← Este archivo
-│
-├── context/                   # 📋 Toda la planificación y roadmap
-│   ├── Roadmap_Simulador_v2.md    # Índice general con links a cada fase
-│   ├── preguntas_abiertas.md      # Preguntas de diseño por resolver
-│   ├── fase_0_backend.md          # Infraestructura cloud, API REST, Panel de Control
-│   ├── fase_1_core_vr.md          # OpenXR, VIEW_INDEX, DataManager, entorno 3D
-│   ├── fase_2_shaders_vision.md   # Shaders asimétricos, DoF, halos, post-procesado
-│   ├── fase_3_streaming_tablet.md # WebSocket, streaming video, tablet control
-│   ├── fase_4_licencias.md        # Hardware binding, licencias offline, cifrado
-│   └── fase_5_ota.md              # Actualizaciones OTA, CI/CD, Smart Update Manager
-│
-└── .godot/                    # Cache del editor Godot (ignorado por Git)
-```
+## Jerarquía de documentación (qué leer y cuándo)
 
----
+| Doc | Para qué |
+|-----|----------|
+| `PLAN.md` | **Fuente de verdad de lo que viene**: sprints, criterios de salida, decisiones bloqueadas, riesgos. |
+| `progress.txt` | Estado por sprint + **bugs descubiertos y workarounds** (leer antes de tocar algo frágil). |
+| `CLAUDE.md` | Comandos (build/export/adb/backend), convenciones, known issues/TODOs, tabla completa de decisiones bloqueadas. |
+| `MEMORY.md` + `memory/` | Aprendizajes durables entre sesiones (glare, perf, optimizaciones, estructura de assets). Consultá antes de re-investigar. |
+| `context/fase_0..5.md` + `Roadmap_Simulador_v2.md` | Specs originales. Sus **📋 Notas Técnicas** tienen APIs de Godot 4.6 **ya verificadas — usalas como están, no re-verifiques**. |
 
-## Stack tecnológico
+## Arquitectura (dónde está cada cosa)
 
-| Capa | Tecnología |
-|------|------------|
-| Motor | Godot 4.6.3 (Forward+ renderer, Vulkan/D3D12, Jolt Physics) |
-| XR | OpenXR (Khronos standard) |
-| Lenguaje | GDScript (nativo de Godot) |
-| Shaders | GLSL-like (Godot Shading Language), `shader_type spatial` |
-| Backend API | Python 3.11+ + FastAPI |
-| Base de datos | SQLite (desarrollo) → PostgreSQL (producción si escala) |
-| Panel Admin | HTML + Jinja2 + HTMX + Tailwind CSS |
-| Almacenamiento | AWS S3 o Cloudflare R2 (APK, PCK, manifest) |
-| CI/CD | GitHub Actions |
-| Dispositivo objetivo | Meta Quest 3 (Android 12+, ARM64) |
-| Dispositivo secundario | Tablet Android (app de control, también en Godot) |
+Raíz: `C:\Users\jvare\OneDrive\Documents\simulador`.
 
----
+- **`autoloads/`** — `data_manager.gd` (catálogo de lentes: `user://` → `res://defaults/lentes.json` → backend; `current_vision_state`, señal `vision_state_changed`), `streaming_server.gd` (WebSocket :9090, desactivado en builds tablet), `discovery_beacon.gd` (UDP :9091). Los autoloads **no llevan lógica de UI**: emiten señales, las escenas escuchan.
+- **`features/vr_core/`** — `main.tscn` + `main.gd`: escena raíz. Bootstrap OpenXR; `SubViewport` + `SubViewportContainer` + `ShaderMaterial` para post-proceso por-ojo; `ScenarioContainer` donde se cargan escenarios; diccionario `SCENARIOS` define por-escena `halos/astigmatism/env(day|night)/show_book/halo_threshold/foveation/glow`.
+- **`features/vision_shaders/`** — `sprint2_blur_test.gdshader` (shader principal `spatial`, ramifica en `VIEW_INDEX`: blur box 9-tap, halo 2-anillos, contraste, DoF), `fade.gdshader`, `glare_billboard.gdshader` + `glare_source.gd`, `eye_test.gdshader`.
+- **`features/scenarios/`** — `consultorio/` (oficina inmersiva + libro en mano, `book_holder.gd`; cerrada con `room_shell.glb` + `tree.glb`), `ruta_noche/` (escena **100% code-gen** en `_ready()` — referencia canónica del patrón generativo: `ruta_noche.gd` + `ruta_traffic.gd`).
+- **`features/tablet/`** — captura de streaming (`SubViewport` 320×320 @10Hz, JPG en `WorkerThreadPool`), `streaming_client.*` (UI control), `eye_preview.gdshader` (canvas_item, simula por-ojo en la tablet).
+- **`backend/`** — FastAPI + Postgres 16 + MinIO + Caddy vía Docker Compose. `api/app/` (config, models, seed, routers públicos + `admin/` con auth JWT, CRUD devices, editor de lentes, version manager, logs, i18n es/en, Jinja2 + HTMX + Tailwind).
+- **`defaults/lentes.json`** — catálogo seed (única fuente si el backend no responde). `export_presets.cfg` — presets `Android` (visor, `com.simulador.vr`, OpenXR) y `AndroidTablet` (`com.simulador.tablet`, sin XR, feature `tablet`).
+- **`assets/scenarios/<escena>/<asset>/`** — modelos (glb/fbx/gltf/obj) + texturas, todo commiteado con sus `.import`.
 
-## Cómo usar este proyecto
+## Convenciones técnicas (respetalas)
 
-### Si sos un desarrollador nuevo:
-1. Leé `Roadmap_Simulador_v2.md` para entender la visión general.
-2. Leé cada fase en orden (0 → 5). Cada una tiene:
-   - **Objetivo**: qué se construye.
-   - **Prompts para LLM**: instrucciones detalladas para generar el código.
-   - **📋 Notas Técnicas**: APIs verificadas contra la documentación de Godot 4.6.
-3. Leé `preguntas_abiertas.md` para conocer decisiones pendientes.
-4. La Fase 0 (backend) puede desarrollarse en paralelo con las otras fases.
+- **Post-proceso por-ojo**: `SubViewportContainer` + shader `shader_type spatial` (NUNCA `canvas_item`) ramificando en `VIEW_INDEX`. (Setup de OpenXR: XR + Shaders habilitados en Project Settings, requiere Save & Restart, si no `VIEW_INDEX` no compila.)
+- **Halos/glare = arquitectura GlareSource**: billboards con `render_priority 10` + material emissive con energy alto. En Quest/multiview el backbuffer **no genera mips**, por eso el halo es procedural por billboard, NO screen-space. Ver `memory/glare-billboard-architecture.md`.
+- **Iluminación por escena** según `SCENARIOS` en `main.gd`. Ej.: consultorio = `env="day"`, `halos=false`, **glow apagado** (lectura de cerca). No agregues glow/GlareSource ahí salvo pedido explícito.
+- **Escenarios nuevos**: seguí el patrón code-gen de `ruta_noche.gd` (cargar assets con `load()`, construir materiales/meshes por código, repetir módulos). Filtrado anisotrópico en texturas de lectura cercana (patrón en `book_holder.gd`).
+- **Naming**: `snake_case` (vars/funcs/señales), `UPPER_SNAKE_CASE` (constantes). GDScript, identificadores en inglés, comentarios en español.
 
-### Si sos un LLM / AI agent:
-1. Empezá leyendo `Roadmap_Simulador_v2.md` como índice.
-2. Cuando trabajes en una fase específica, leé el archivo de fase correspondiente.
-3. Respetá las APIs y patrones documentados en las **📋 Notas Técnicas** de cada fase.
-4. Las verificaciones contra la doc de Godot YA ESTÁN HECHAS. No las repitas — usá las APIs documentadas.
-5. Si encontrás una pregunta de diseño sin resolver, chequiá `preguntas_abiertas.md` primero.
-6. Usá GDScript. Los nombres de variables y funciones en **inglés**, comentarios en español.
-7. **NO escribas código** a menos que se te pida explícitamente. Este proyecto está en fase de diseño.
-8. Si se te pide modificar el roadmap o las fases, mantené el formato consistente.
+## Decisiones bloqueadas (resumen — tabla completa en `CLAUDE.md` y `PLAN.md`)
 
----
+Sideload (sin Meta Store) · Quest 3 primario/Quest 2 best-effort · backend VPS + Docker Compose (api+Postgres+MinIO+Caddy) · streaming = video real (validado) · catálogo embebido + sync `/api/lenses` · alta de visor manual por admin · **licencias permanentes** (`license_expiry = NULL`) · Forward+ (migrar a Compatibility solo si perf lo exige) · cifrado licencia con checksum atado a `device_id`. **No re-debatir sin justificación fuerte.**
 
-## Fases (orden de desarrollo recomendado)
+## MCP + el enjambre
 
-| # | Fase | Archivo | Dependencias | Estado |
-|---|------|---------|--------------|--------|
-| 0 | Infraestructura y Panel | `fase_0_backend.md` | — | Diseño completo + verificado |
-| 1 | Core VR y Datos | `fase_1_core_vr.md` | — | Diseño completo + verificado |
-| 2 | Shaders de Visión | `fase_2_shaders_vision.md` | F1 | Diseño completo + verificado |
-| 3 | Streaming y Tablet | `fase_3_streaming_tablet.md` | F1 | Diseño completo + verificado |
-| 4 | Licencias y Seguridad | `fase_4_licencias.md` | F0 | Diseño completo + verificado |
-| 5 | OTA y CI/CD | `fase_5_ota.md` | F0, F1 | Diseño completo + verificado |
+El proyecto usa **`godot-mcp-pro`** (editor Godot) y **`blender-mcp`** (Blender) — definidos en `.mcp.json`. **No usar Engram en este proyecto.**
 
-**Nota:** F0 puede desarrollarse en paralelo con F1-F3. F4 y F5 dependen de F0 (necesitan la API).
+- **Regla EDITOR vs RUNTIME (Godot MCP)**: tools de *editor* (escena/nodos/scripts/recursos/screenshots de editor) están siempre disponibles; tools de *runtime* (`get_game_*`, `execute_game_script`, `simulate_*`) **fallan sin el juego corriendo**. Para medir AABB/propiedades usá `execute_editor_script`. El runtime XR puede dar screenshots negros sin sesión OpenXR.
+- **Instancia única / serializar mutaciones**: hay UN editor Godot y UN Blender. **Nunca mutar el mismo editor en paralelo** entre agentes; las mutaciones se serializan. El paralelismo seguro es solo-lectura + cruce Blender‖Godot.
+- **Enjambre** (`.claude/agents/` + workflow `.claude/workflows/blender-to-godot.js`):
+  - **`blender-modeler`** — modela/exporta glb vía Blender MCP. Entrega assets a `godot-builder`.
+  - **`godot-builder`** — escenas/nodos/materiales/shaders vía Godot MCP. Siempre `save_scene` + chequear `get_editor_errors`.
+  - **`scene-verifier`** — solo-lectura: medidas, screenshots, perf, errores. Nunca muta.
+  - **`project-explorer`** — solo-lectura: investigación general del repo (código, backend, docs).
+  - **Gotcha**: los subagentes custom de `.claude/agents/` se registran al **iniciar sesión**; recién creados/editados no son invocables con la tool Agent en la misma sesión (usar la tool Workflow, que los resuelve por `agentType`, o manejar los MCP directamente). PolyHaven en Blender viene **deshabilitado** por defecto.
 
----
-
-## Decisiones de diseño YA TOMADAS
-
-Estas cosas no deberían re-debatirse:
-
-1. **Renderer:** Forward+ (ya configurado en `project.godot`). Para Quest standalone, la doc recomienda Compatibility, pero el proyecto usa Forward+. Si hay problemas de rendimiento en Quest, migrar a Compatibility.
-2. **Motor de físicas:** Jolt Physics (ya configurado).
-3. **Multiview:** Activado. `VIEW_INDEX` en shaders spatial para diferenciar ojos.
-4. **Post-procesado por ojo:** Vía `SubViewportContainer` + `ShaderMaterial` con shader `spatial`. NO con `canvas_item`.
-5. **Formato de assets:** PCK (sin comprimir) para máxima velocidad de carga.
-6. **Manifiesto:** Un solo `manifest.json` con versiones de APK y assets.
-7. **Periodo de gracia offline:** 7 días para licencias (Fase 4).
-8. **WebSocket server:** `TCPServer` + `WebSocketPeer` (no hay `WebSocketServer` en Godot 4).
-9. **Cifrado de licencia local:** `FileAccess.open_encrypted_with_pass()`.
-10. **Hash de integridad:** SHA256 vía `FileAccess.get_sha256()`.
-11. **Idioma de código:** Variables/funciones en inglés, comentarios en español.
-12. **API Backend:** FastAPI. Panel admin: server-rendered (Jinja2 + HTMX).
-
----
-
-## Convenciones
-
-### Archivos de fase
-Cada archivo de fase sigue esta estructura:
-```
-# FASE X Detallada: [título]
-
-[descripción general de la fase]
-
-## 🏗️ X.1 [sección]
-[contenido]
-
-### 🤖 Prompt para alimentar al LLM:
-> "[prompt detallado para generar código]"
-
-### 📋 Notas Técnicas (Verificadas contra Godot X.Y Docs):
-[tablas con APIs verificadas, código de ejemplo, advertencias]
-```
-
-### GDScript (cuando se escriba)
-```gdscript
-# Variables: snake_case
-var device_id: String
-var update_manager: Node
-
-# Funciones: snake_case
-func check_for_updates() -> bool:
-	pass
-
-# Señales: snake_case
-signal license_verified(device_id: String)
-signal license_denied(reason: String)
-
-# Constantes: UPPER_SNAKE_CASE
-const MAX_RETRY_COUNT := 3
-const DOWNLOAD_TIMEOUT := 30.0
-```
-
-### Shaders
-```glsl
-shader_type spatial;
-// Uniforms: snake_case
-uniform float blur_amount_l : hint_range(0.0, 1.0);
-uniform float blur_amount_r : hint_range(0.0, 1.0);
-```
-
----
-
-## Verificaciones contra documentación
-
-Todas las fases (0-5) han sido verificadas contra la documentación oficial de Godot 4.6. Las **📋 Notas Técnicas** en cada archivo contienen las APIs confirmadas, código de ejemplo validado, y advertencias de la doc oficial.
-
-Fuentes verificadas:
-- Godot 4.6 Classes API Reference
-- XR Setup Guide (OpenXR)
-- Spatial Shader Reference
-- CanvasItem Shader Reference
-- Screen-Reading Shaders Guide
-- WebSocket Tutorial
-- Exporting Projects / PCKs Guide
-- Command Line Tutorial
-- HTTPRequest Class Reference
-- FileAccess / HashingContext / ProjectSettings Class References
-- OpenXR Settings Reference
-
----
-
-## Workflow típico de desarrollo
-
-1. **Diseño:** Se refina el archivo de fase en `context/`.
-2. **Decisión:** Se responden las preguntas de `preguntas_abiertas.md`.
-3. **Implementación:** Se usa el prompt del LLM para generar el código GDScript/shaders.
-4. **Verificación:** Se testea en Quest 3. Se itera.
-5. **Commit:** Se actualiza el archivo de fase si hubo cambios de diseño.
-6. **Release:** `git tag vX.Y.Z` → CI/CD → deploy automático (Fase 5).
+## Pasos de editor no automatizables (estado en `progress.txt`)
+Verificar XR/OpenXR + Shaders habilitados (Save & Restart); autoloads bajo Autoload; Android Build Template + export templates 4.6.x; `debug.keystore`; presets `Android`/`AndroidTablet`. `BACKEND_URL` está hardcodeado en `autoloads/data_manager.gd` (IP LAN dev) — actualizar antes de exportar a otra red.

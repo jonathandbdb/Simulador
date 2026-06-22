@@ -14,12 +14,27 @@ What's running end-to-end today:
 **Documentation hierarchy:**
 - `PLAN.md` — full sprint roadmap, exit criteria, locked decisions, risk register. **Source of truth for what comes next.**
 - `progress.txt` — current sprint status + session notes. Updated at sprint close. Contains important bug discoveries and workarounds.
-- `AGENTS.md` — original agent-facing briefing (written at project start; some sections now outdated but the API/convention notes remain valid).
+- `AGENTS.md` — **brief agent-facing canónico** (mantener actualizado): mapa del proyecto, estado real, arquitectura y convenciones. Los subagentes del enjambre lo leen primero.
 - `context/` — original design specs (Roadmap_Simulador_v2.md + fase_0..5.md + preguntas_abiertas.md). 📋 Notas Técnicas in each phase file have already verified Godot 4.6 APIs — don't re-verify, use as written.
 
-## MCP de Godot
+## MCP de Godot y Blender
 
-Este proyecto tiene configurado `godot-mcp-pro` (`.mcp.json`). Usar los tools del MCP de Godot para interactuar con el editor — **no usar Engram** en este proyecto. Los tools del MCP están disponibles cuando el editor Godot está abierto con el plugin `addons/godot_mcp` habilitado.
+Este proyecto tiene configurados `godot-mcp-pro` (editor Godot) y `blender-mcp` (Blender) en `.mcp.json`. Usar esos tools para interactuar con cada editor — **no usar Engram** en este proyecto. Los tools de Godot están disponibles cuando el editor está abierto con el plugin `addons/godot_mcp` habilitado; los de Blender, con el addon BlenderMCP corriendo.
+
+**Regla editor-vs-runtime (Godot MCP):** los tools de *editor* (escena/nodos/scripts/recursos/screenshots de editor) están siempre disponibles; los de *runtime* (`get_game_*`, `execute_game_script`, `simulate_*`) **fallan sin el juego corriendo**.
+
+## Enjambre de agentes (`.claude/`)
+
+Subagentes específicos del proyecto en `.claude/agents/` + un orquestador en `.claude/workflows/blender-to-godot.js`. Cada agente lee `AGENTS.md` (brief canónico) al arrancar y trae embebido un resumen de convenciones:
+
+- **`blender-modeler`** — modela/exporta glb vía Blender MCP. Entrega assets a `godot-builder`.
+- **`godot-builder`** — escenas/nodos/materiales/shaders vía Godot MCP. Siempre `save_scene` + `get_editor_errors`.
+- **`scene-verifier`** — solo-lectura: medidas, screenshots, perf, errores.
+- **`project-explorer`** — solo-lectura: investigación general del repo (código, backend, docs).
+
+**Regla de instancia única:** hay UN editor Godot y UN Blender; **nunca mutar el mismo editor en paralelo** entre agentes — serializar las mutaciones. El paralelismo seguro es solo-lectura + cruce Blender‖Godot. El workflow pipeline (Measure→Model→Place→Verify→Fix) respeta esto.
+
+**Gotcha:** los subagentes custom se registran al **iniciar sesión**; recién creados/editados no son invocables con la tool Agent en la misma sesión (usar la tool Workflow, que los resuelve por `agentType`, o manejar los MCP directamente). PolyHaven en Blender viene **deshabilitado** por defecto.
 
 ## What this is
 
