@@ -19,12 +19,12 @@ extends Node3D
 
 const TARGET_PHYSICS_TICKS := 90
 
-# 1.6 (FFR): supersampling por encima del nativo (1.6×≈2688/ojo > 2064) => centro
-# nítido. NO se sostiene a resolución completa sin foveación (2.0× = 10fps), pero
-# CON foveated rendering ALTO (ver _ready) la periferia abarata y el centro queda a
-# esta resolución alta => nitidez donde mirás + FPS ~50-65. Tunear 1.5–1.8 según FPS
-# medido. El usuario acepta 40-50 fps a cambio de nitidez.
-const XR_RENDER_SCALE := 1.6
+# Resolución objetivo ABSOLUTA por ojo (px). Se calcula el multiplicador en _ready
+# para llegar a este valor en CUALQUIER Quest, sin importar la resolución que cada
+# casco reporte (varía por refresco / resolución dinámica del dispositivo). 2520 está
+# por encima del nativo del Quest 3 (2064) => nítido, y sostenible con la foveación
+# alta. Subir (2600-2800) = más nítido/menos FPS; bajar (2200-2400) = más FPS.
+const TARGET_EYE_RES_PX := 2520.0
 
 # Lente inicial aplicada a ambos ojos al cargar el catalogo. Si no existe
 # en el catalogo, se usa la primera disponible.
@@ -164,8 +164,17 @@ func _ready() -> void:
 	else:
 		get_viewport().use_xr = true
 		Engine.physics_ticks_per_second = TARGET_PHYSICS_TICKS
-		# Supersampling per-eye (ver XR_RENDER_SCALE), FINANCIADO por foveated rendering.
-		xr_interface.set_render_target_size_multiplier(XR_RENDER_SCALE)
+		# Resolución ABSOLUTA fija (px/ojo), NO un multiplicador relativo. Cada Quest
+		# reporta una resolución "recomendada" distinta según sus ajustes (refresco /
+		# resolución dinámica) — por eso dos Quest 3 con el MISMO APK rendían distinto
+		# (uno bajaba la res para subir FPS; el otro la mantenía y se clavaba a 11fps).
+		# Calculamos el multiplicador para llegar al TARGET fijo en todos los cascos:
+		# render predecible e igual en todos. TARGET por encima del nativo (2064) =
+		# nítido, pero sostenible (la foveación lo financia).
+		var rec_size := xr_interface.get_render_target_size()
+		var mult := clampf(TARGET_EYE_RES_PX / maxf(rec_size.x, 1.0), 0.5, 2.5)
+		xr_interface.set_render_target_size_multiplier(mult)
+		print("XR: recomendado=%.0fpx -> mult=%.2f -> target=%.0fpx/ojo" % [rec_size.x, mult, TARGET_EYE_RES_PX])
 		# Foveated rendering ALTO y FORZADO: renderiza el CENTRO (fóvea) a la
 		# resolución alta del supersampling y la PERIFERIA más barata => permite
 		# subir el render scale (nitidez central) manteniendo FPS. Clave de API: con
