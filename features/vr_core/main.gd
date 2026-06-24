@@ -19,12 +19,12 @@ extends Node3D
 
 const TARGET_PHYSICS_TICKS := 90
 
-# 2.0 (objetivo SF≈1.0 = resolución recomendada completa): por los datos
-# (1.3×→SF~0.73, 1.7×→0.85), ~2.0× alcanza SF~1.0. Es el techo útil (doc Godot:
-# factor entero = downsampling más nítido, sin beneficio por encima de 2.0). Con
-# las optimizaciones (sin mip-gen del backbuffer + sombras baratas) debería rendir
-# mejor que el 2.0× previo (17fps). FPS caerán a ~35-45; el usuario lo acepta.
-const XR_RENDER_SCALE := 2.0
+# 1.6 (FFR): supersampling por encima del nativo (1.6×≈2688/ojo > 2064) => centro
+# nítido. NO se sostiene a resolución completa sin foveación (2.0× = 10fps), pero
+# CON foveated rendering ALTO (ver _ready) la periferia abarata y el centro queda a
+# esta resolución alta => nitidez donde mirás + FPS ~50-65. Tunear 1.5–1.8 según FPS
+# medido. El usuario acepta 40-50 fps a cambio de nitidez.
+const XR_RENDER_SCALE := 1.6
 
 # Lente inicial aplicada a ambos ojos al cargar el catalogo. Si no existe
 # en el catalogo, se usa la primera disponible.
@@ -56,9 +56,10 @@ const SCENARIOS := {
 		# Umbral alto: de dia solo la lampara de escritorio (muy brillante) genera
 		# halo; la pagina iluminada no debe disparar el efecto.
 		"halo_threshold": 0.9,
-		# Foveation DESACTIVADA (test serrucho): la foveacion degradaba la periferia
-		# (zocalos, libro) y anulaba el AA. Reactivar (1/2) si el FPS sufre.
-		"foveation": 0,
+		# Foveation ALTA (3): financia el supersampling (centro nítido, periferia
+		# barata). Forzada con foveation_dynamic=false en _ready. Bajar a 2 si la
+		# periferia molesta o aparece artefacto de foveación en Quest 3.
+		"foveation": 3,
 	},
 	"ruta_noche": {
 		"scene":     "res://features/scenarios/ruta_noche/ruta_noche.tscn",
@@ -67,9 +68,8 @@ const SCENARIOS := {
 		"env":       "night",
 		"show_book": false,
 		"halo_threshold": 0.72,
-		# Foveation DESACTIVADA (test serrucho): degradaba la periferia (autos/postes
-		# lejanos, tablero) y anulaba supersampling/MSAA. Reactivar (1/2) si FPS sufre.
-		"foveation": 0,
+		# Foveation ALTA (3): financia el supersampling. Bajar a 2 si molesta.
+		"foveation": 3,
 	},
 }
 
@@ -164,10 +164,19 @@ func _ready() -> void:
 	else:
 		get_viewport().use_xr = true
 		Engine.physics_ticks_per_second = TARGET_PHYSICS_TICKS
-		# Supersampling per-eye hasta la resolución RECOMENDADA del Quest (SF>=1.0)
-		# para que el compositor NO upscalee+sharpenee (causa del serrucho). Ver
-		# XR_RENDER_SCALE. No se usa msaa_3d: no antialiasa en Mobile y gasta GPU.
+		# Supersampling per-eye (ver XR_RENDER_SCALE), FINANCIADO por foveated rendering.
 		xr_interface.set_render_target_size_multiplier(XR_RENDER_SCALE)
+		# Foveated rendering ALTO y FORZADO: renderiza el CENTRO (fóvea) a la
+		# resolución alta del supersampling y la PERIFERIA más barata => permite
+		# subir el render scale (nitidez central) manteniendo FPS. Clave de API: con
+		# foveation_dynamic=true el sistema controla el nivel y NO se puede forzar;
+		# por eso dynamic=false + level=3 (máximo ahorro). Si aparece artefacto
+		# "caleidoscopio" en un ojo o pantalla negra (regresión 4.6 en Quest 3),
+		# bajar a 2.
+		if "foveation_dynamic" in xr_interface:
+			xr_interface.foveation_dynamic = false
+		if "foveation_level" in xr_interface:
+			xr_interface.foveation_level = 3
 
 	# DIAGNOSTICO TEMPORAL (verificar SF/resolución en logcat). Quitar al confirmar.
 	get_tree().create_timer(3.0).timeout.connect(_dump_render_state)
@@ -189,6 +198,7 @@ func _ready() -> void:
 	# Referencia inicial al nodo de escena (el Consultorio instanciado en .tscn).
 	if scenario_container.get_child_count() > 0:
 		_scenario_node = scenario_container.get_child(0) as Node3D
+	_fix_room_shell_zfighting()
 
 	# Gate de astigmatismo para la escena inicial (no pasa por load_scenario).
 	_astig_allowed = SCENARIOS.get(_current_scenario_id, {}).get("astigmatism", true)
@@ -232,6 +242,32 @@ func _dump_render_state() -> void:
 	print("RS lens L=", DataManager.current_vision_state.get("left", {}).get("lens_id", "?"),
 		"  R=", DataManager.current_vision_state.get("right", {}).get("lens_id", "?"))
 	print("====================")
+
+
+## Anti Z-fighting del consultorio: el room_shell (paredes agregadas) tiene paredes
+## perimetrales COPLANARES con las de la malla de oficina -> el depth buffer "pelea"
+## y produce un serrucho que se mueve, INMUNE a resolución/MSAA (por eso nada lo
+## arreglaba). Corriendo las paredes del room_shell unos cm hacia afuera dejan de ser
+## coplanares: la pared de la oficina queda adelante y el serrucho desaparece. Las
+## paredes con SpotLight/ventana/marco (PosX) se dejan: no son coplanares.
+func _fix_room_shell_zfighting() -> void:
+	if _scenario_node == null:
+		return
+	var rs := _scenario_node.get_node_or_null("RoomShell")
+	if rs == null:
+		return  # solo aplica al consultorio
+	var moves := {
+		"Wall_NegX": Vector3(-0.04, 0.0, 0.0),
+		"Wall_NegZ": Vector3(0.0, 0.0, -0.04),
+		"Wall_PosZ": Vector3(0.0, 0.0, 0.04),
+	}
+	var n := 0
+	for wname in moves:
+		var w := rs.get_node_or_null(wname) as Node3D
+		if w != null:
+			w.position += moves[wname]
+			n += 1
+	print("FIX: room_shell %d paredes corridas 4cm (anti Z-fighting)" % n)
 
 
 func _setup_streaming_capture() -> void:
