@@ -19,15 +19,12 @@ extends Node3D
 
 const TARGET_PHYSICS_TICKS := 90
 
-# Supersampling per-eye: renderiza el eye-buffer a mayor resolucion que la
-# nativa del panel para ganar nitidez en texto/detalle a distancia (imita lo
-# que hace PCVR/Air Link). >1.0 = mas nitido pero mas costo GPU. Se compensa
-# con foveated rendering (xr/openxr/foveation_*). 1.15 es un punto conservador
-# para Quest 2; Quest 3 admite mas holgura.
-# Bajado a 1.0: el post-proceso nocturno (halo/starburst/astig) es fill-rate
-# bound; supersamplear lo multiplicaba (a 1.15 => +32% de píxeles a sombrear ×2
-# ojos). 1.0 es el mayor ahorro de GPU en Quest sin tocar el efecto.
-const XR_RENDER_SCALE := 1.0
+# 2.0 (objetivo SF≈1.0 = resolución recomendada completa): por los datos
+# (1.3×→SF~0.73, 1.7×→0.85), ~2.0× alcanza SF~1.0. Es el techo útil (doc Godot:
+# factor entero = downsampling más nítido, sin beneficio por encima de 2.0). Con
+# las optimizaciones (sin mip-gen del backbuffer + sombras baratas) debería rendir
+# mejor que el 2.0× previo (17fps). FPS caerán a ~35-45; el usuario lo acepta.
+const XR_RENDER_SCALE := 2.0
 
 # Lente inicial aplicada a ambos ojos al cargar el catalogo. Si no existe
 # en el catalogo, se usa la primera disponible.
@@ -59,8 +56,9 @@ const SCENARIOS := {
 		# Umbral alto: de dia solo la lampara de escritorio (muy brillante) genera
 		# halo; la pagina iluminada no debe disparar el efecto.
 		"halo_threshold": 0.9,
-		# Foveation normal: el test de lectura necesita nitidez central y media.
-		"foveation": 2,
+		# Foveation DESACTIVADA (test serrucho): la foveacion degradaba la periferia
+		# (zocalos, libro) y anulaba el AA. Reactivar (1/2) si el FPS sufre.
+		"foveation": 0,
 	},
 	"ruta_noche": {
 		"scene":     "res://features/scenarios/ruta_noche/ruta_noche.tscn",
@@ -69,11 +67,9 @@ const SCENARIOS := {
 		"env":       "night",
 		"show_book": false,
 		"halo_threshold": 0.72,
-		# Foveation MEDIA (2, no 3): el tablero/CarPlay del auto caen en la parte
-		# baja del FOV (periferia); con foveation agresiva (3) se renderizaban a
-		# baja resolucion y se veian borrosos. 2 mantiene legible el tablero a
-		# costa de algo de fill-rate. Subir a 3 si el framerate sufre en Quest.
-		"foveation": 2,
+		# Foveation DESACTIVADA (test serrucho): degradaba la periferia (autos/postes
+		# lejanos, tablero) y anulaba supersampling/MSAA. Reactivar (1/2) si FPS sufre.
+		"foveation": 0,
 	},
 }
 
@@ -168,8 +164,14 @@ func _ready() -> void:
 	else:
 		get_viewport().use_xr = true
 		Engine.physics_ticks_per_second = TARGET_PHYSICS_TICKS
-		# Supersampling per-eye para nitidez (ver XR_RENDER_SCALE).
+		# Supersampling per-eye hasta la resolución RECOMENDADA del Quest (SF>=1.0)
+		# para que el compositor NO upscalee+sharpenee (causa del serrucho). Ver
+		# XR_RENDER_SCALE. No se usa msaa_3d: no antialiasa en Mobile y gasta GPU.
 		xr_interface.set_render_target_size_multiplier(XR_RENDER_SCALE)
+
+	# DIAGNOSTICO TEMPORAL (verificar SF/resolución en logcat). Quitar al confirmar.
+	get_tree().create_timer(3.0).timeout.connect(_dump_render_state)
+	get_tree().create_timer(6.0).timeout.connect(_dump_render_state)
 
 	_apply_environment(DAY_PARAMS)
 
@@ -208,6 +210,28 @@ func _ready() -> void:
 		_apply_initial_lens()
 
 	_setup_streaming_capture()
+
+
+func _dump_render_state() -> void:
+	# Estado real del viewport que renderiza (verificacion del serrucho).
+	var vp := get_viewport()
+	print("=== RENDER_STATE ===")
+	print("RS use_xr=", vp.use_xr)
+	print("RS msaa_3d=", vp.msaa_3d, "  (0=off 1=2x 2=4x 3=8x)")
+	print("RS screen_space_aa=", vp.screen_space_aa, "  use_taa=", vp.use_taa)
+	print("RS scaling_3d_mode=", vp.scaling_3d_mode, "  scale=", vp.scaling_3d_scale)
+	print("RS viewport.size=", vp.size)
+	print("RS msaa_3d_project=", ProjectSettings.get_setting("rendering/anti_aliasing/quality/msaa_3d", "unset"))
+	print("RS msaa_3d_override=", ProjectSettings.get_setting_with_override("rendering/anti_aliasing/quality/msaa_3d"))
+	print("RS render_method.mobile=", ProjectSettings.get_setting("rendering/renderer/rendering_method.mobile", "unset"))
+	if xr_interface != null and xr_interface.is_initialized():
+		print("RS xr.render_target_size=", xr_interface.get_render_target_size())
+		print("RS xr.foveation_level=", (xr_interface.foveation_level if "foveation_level" in xr_interface else -1))
+	else:
+		print("RS xr_interface NO inicializado (modo flat)")
+	print("RS lens L=", DataManager.current_vision_state.get("left", {}).get("lens_id", "?"),
+		"  R=", DataManager.current_vision_state.get("right", {}).get("lens_id", "?"))
+	print("====================")
 
 
 func _setup_streaming_capture() -> void:

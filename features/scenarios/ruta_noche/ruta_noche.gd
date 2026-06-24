@@ -100,6 +100,12 @@ var _lamp_lum_mat: StandardMaterial3D
 var _head_local_positions: Array[Vector3] = []
 
 
+# TEST TEMPORAL: true = escena noche MÍNIMA (1 farola + 1 auto pasando, cabina del
+# jugador oculta) para diagnosticar el dentado con la escena casi vacía. Poner en
+# false para volver a la escena completa normal.
+const TEST_MINIMAL_NIGHT := false
+
+
 func _ready() -> void:
 	_build_materials()
 	var lamp_mesh := _build_single_lamp_mesh()
@@ -111,12 +117,19 @@ func _ready() -> void:
 	var road_aabb := road_mesh.get_aabb()
 	var tile_len: float = road_aabb.size.z * scale_factor
 	var road_half_x: float = road_aabb.size.x * 0.5 * scale_factor
-	_spawn_road_tiles(road_mesh, tile_len)
+	# === TEST TEMPORAL: dejar SOLO el auto del conductor ===
+	# Saltea ruta, faroles y tráfico para ver si con la escena casi vacía mejora la
+	# nitidez/dentado (libera GPU => el visor sube la resolución). Mantiene la luna y
+	# la luz del tablero para que la cabina se vea. Poner en false para volver atrás.
 	_spawn_moonlight()
+	if not TEST_MINIMAL_NIGHT:
+		_spawn_road_tiles(road_mesh, tile_len)
 	_spawn_lamps(lamp_mesh, tile_len, road_half_x)
 	_spawn_traffic(tile_len, road_half_x)
 	_spawn_car()
 	_setup_standalone_preview()
+	if TEST_MINIMAL_NIGHT:
+		print("TEST: ruta_noche MÍNIMA (1 farola + 1 auto, SIN ruta ni cabina)")
 
 
 ## Tráfico nocturno: separa los 10 autos del FBX y los hace circular por la ruta.
@@ -126,6 +139,8 @@ func _spawn_traffic(tile_len: float, road_half_x: float) -> void:
 	traffic.set_script(load("res://features/scenarios/ruta_noche/ruta_traffic.gd"))
 	traffic.set("road_half_z", tile_len * float(tiles) * 0.5)
 	traffic.set("lane_x", road_half_x * 0.32)
+	if TEST_MINIMAL_NIGHT:
+		traffic.set("max_cars", 1)  # un solo auto pasando a la vez
 	add_child(traffic)
 
 
@@ -155,6 +170,8 @@ func _spawn_car() -> void:
 		-car_scale * CAR_FLOOR_LOCAL_Y,
 		-car_scale * driver_eye_local.z)
 	add_child(car)
+	if TEST_MINIMAL_NIGHT:
+		car.visible = false  # ocultar la cabina del jugador (test mínimo)
 
 	# Apagar cualquier luz que traiga el modelo: de noche una luz embebida (p.ej.
 	# el GLB anterior traía un point light de intensidad ~54000) quemaría la
@@ -195,7 +212,7 @@ func _spawn_car() -> void:
 	# para verlo de noche. Va en la ESCENA (sin escala) para que su alcance NO
 	# herede el ×1.5 del auto. Energía baja para no lavar la calzada ni disparar
 	# el halo del post-proceso (umbral nocturno 0.72). Posición = ojo + offset.
-	if dash_light_enabled:
+	if dash_light_enabled and not TEST_MINIMAL_NIGHT:
 		var dash := OmniLight3D.new()
 		dash.name = "DashLight"
 		dash.light_color = dash_light_color
@@ -223,6 +240,11 @@ func _spawn_moonlight() -> void:
 # ----------------------------------------------------------------------
 func _build_materials() -> void:
 	_road_mat = StandardMaterial3D.new()
+	# Filtro anisotrópico: la calzada se ve en ángulo MUY rasante (se extiende al
+	# horizonte). Sin anisotropía, las texturas/líneas en la lejanía aliasean y
+	# "caminan". Con mipmaps (ya habilitados en el import) + anisotrópico, las marcas
+	# viales y el asfalto lejano quedan estables.
+	_road_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	_road_mat.albedo_texture = load("res://assets/scenarios/ruta_noche/road2/textures/road_Polygon_1_BaseColor.png")
 	_road_mat.normal_enabled = true
 	_road_mat.normal_texture = load("res://assets/scenarios/ruta_noche/road2/textures/road_Polygon_1_Normal.png")
@@ -412,6 +434,11 @@ func _spawn_lamps(lamp_mesh: ArrayMesh, tile_len: float, road_half_x: float) -> 
 	# Postes en los bordes de la calle (el brazo recentrado apunta a +x, hacia el
 	# centro). Lado derecho rotado 180° para que su brazo también apunte adentro.
 	var edge_x: float = road_half_x * 0.92
+
+	if TEST_MINIMAL_NIGHT:
+		# UNA sola farola adelante del jugador (con su SpotLight), nada más.
+		_spawn_lamp_side(lamp_mesh, "test", Vector3(-edge_x, 0.0, -12.0), 0.0, true)
+		return
 
 	for i in range(count):
 		var z: float = start_z + float(i) * lamp_spacing_m

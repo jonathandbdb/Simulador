@@ -20,10 +20,14 @@
 shader_type spatial;
 render_mode unshaded, depth_test_disabled, depth_draw_never, blend_mix, cull_disabled;
 
-// filter_linear_mipmap: Godot genera mipmaps del backbuffer una vez por frame.
-// Muestrear un nivel de mip borroso (textureLod) en los halos/glare da suavidad
-// "gratis" con MUCHAS menos muestras — clave para que corra en Quest 3 standalone.
-uniform sampler2D screen_texture : hint_screen_texture, filter_linear_mipmap, repeat_disable;
+// filter_linear (SIN mipmap): el glare/halo screen-space (único que leía mips del
+// backbuffer con textureLod) está MUERTO — lo dibujan los billboards GlareSource, y
+// main.gd fuerza halo/destello a 0 en este shader. Declarar filter_linear_mipmap
+// hacía que Godot generara la cadena de mips del backbuffer CADA FRAME para nada
+// (GPU desperdiciada). Sin mipmap, ese costo desaparece y el blur (4-tap, mip 0) +
+// el contraste se ven igual. Los textureLod() de halo_rings/starburst quedan como
+// código muerto (esas ramas nunca se ejecutan).
+uniform sampler2D screen_texture : hint_screen_texture, filter_linear, repeat_disable;
 uniform sampler2D depth_texture  : hint_depth_texture,  filter_nearest, repeat_disable;
 
 // === Modelo de focos por ojo (metros). Foco = 0 => no usado ===
@@ -173,18 +177,21 @@ float blur_from_focus(float d, float f_far, float f_int, float f_near,
 }
 
 vec3 box_blur_9tap(vec2 uv, vec2 texel, float radius_px) {
-	vec3 sum = vec3(0.0);
-	vec2 step = texel * radius_px;
-	sum += texture(screen_texture, uv + vec2(-1.0, -1.0) * step).rgb;
-	sum += texture(screen_texture, uv + vec2( 0.0, -1.0) * step).rgb;
-	sum += texture(screen_texture, uv + vec2( 1.0, -1.0) * step).rgb;
-	sum += texture(screen_texture, uv + vec2(-1.0,  0.0) * step).rgb;
-	sum += texture(screen_texture, uv                              ).rgb;
-	sum += texture(screen_texture, uv + vec2( 1.0,  0.0) * step).rgb;
-	sum += texture(screen_texture, uv + vec2(-1.0,  1.0) * step).rgb;
-	sum += texture(screen_texture, uv + vec2( 0.0,  1.0) * step).rgb;
-	sum += texture(screen_texture, uv + vec2( 1.0,  1.0) * step).rgb;
-	return sum / 9.0;
+	// Box blur OPTIMIZADO: 4 muestras bilineales en las diagonales. El filtrado
+	// bilineal del hardware (screen_texture es filter_linear) promedia los texels
+	// alrededor de cada punto, dando cobertura suave con 4 lecturas en vez de 9
+	// (~55% menos fill-rate). Clave de perf en Quest: el post-proceso es lo que el
+	// gobernador de resolución dinámica del visor "cobra" bajando la resolución
+	// (SF 0.51 con post-proceso vs 0.90 sin él); abaratar el blur => sube la
+	// resolución efectiva => menos dentado. El MONTO de desenfoque (radius_px, que
+	// sale del error dióptrico) NO cambia: solo el kernel es más barato. El nombre
+	// se conserva por el call-site.
+	vec2 o = texel * radius_px * 0.75;
+	vec3 sum = texture(screen_texture, uv + vec2( o.x,  o.y)).rgb;
+	sum += texture(screen_texture, uv + vec2(-o.x,  o.y)).rgb;
+	sum += texture(screen_texture, uv + vec2( o.x, -o.y)).rgb;
+	sum += texture(screen_texture, uv + vec2(-o.x, -o.y)).rgb;
+	return sum * 0.25;
 }
 
 // Brillo de una fuente para decidir si genera halo/destello/streak. Usa el canal
