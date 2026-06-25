@@ -28,11 +28,13 @@ const TARGET_PHYSICS_TICKS := 90
 # píxel y por ojo) y su costo escala con la resolución. Bajado a 2064 (nativo Q3) =>
 # 0.67x de píxeles, misma nitidez en el centro gracias a la foveación nivel 3.
 #
-# El PRIMER preset es el valor por defecto al arrancar. El resto se barren en runtime
-# con el TRIGGER del control IZQUIERDO para medir FPS vs nitidez en vivo (la res activa
-# se ve en el FpsHud). Bajar = más FPS; los dos últimos (2304/2520) quedan para
-# comparar contra el baseline anterior.
-const EYE_RES_PRESETS_PX: Array[float] = [2064.0, 1920.0, 1800.0, 1680.0, 2304.0, 2520.0]
+# El PRIMER preset es el default al arrancar. Estrategia de nitidez: entre 1680 y 2064
+# NO se percibe diferencia (todo por debajo del panel del Quest), y supersamplear (sf>1)
+# para ganar nitidez real cae a <37 FPS. Así que la nitidez se busca con MSAA 4x +
+# anisotrópico 16x (ver project.godot), NO con resolución. Se arranca en 1680 (gpu
+# ~11 ms, deja margen para el MSAA) y se puede barrer con el TRIGGER IZQUIERDO para
+# probar; la res activa se ve en el FpsHud.
+const EYE_RES_PRESETS_PX: Array[float] = [1680.0, 1800.0, 1920.0, 2064.0, 1560.0]
 
 # Lente inicial aplicada a ambos ojos al cargar el catalogo. Si no existe
 # en el catalogo, se usa la primera disponible.
