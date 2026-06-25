@@ -195,6 +195,11 @@ func _ready() -> void:
 		if "foveation_level" in xr_interface:
 			xr_interface.foveation_level = 3
 
+	# Medir CPU/GPU REAL del render del viewport (temporal): distingue GPU-bound vs
+	# CPU-de-render (submission) vs espera de OpenXR, sin depender de OVR Metrics ni
+	# adb. Lo lee el FpsHud en _process. Quitar al confirmar el cuello.
+	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
+
 	# DIAGNOSTICO TEMPORAL (verificar SF/resolución en logcat). Quitar al confirmar.
 	get_tree().create_timer(3.0).timeout.connect(_dump_render_state)
 	get_tree().create_timer(6.0).timeout.connect(_dump_render_state)
@@ -766,7 +771,21 @@ func _process(delta: float) -> void:
 	if fps_accumulator >= 0.5:
 		var fps := fps_frames / fps_accumulator
 		var frame_ms := (fps_accumulator / fps_frames) * 1000.0
-		fps_label.text = "FPS: %d\nFrame: %.2f ms\nescena: %s\nres/ojo: %.0fpx" % [int(fps), frame_ms, _current_scenario_id, EYE_RES_PRESETS_PX[_eye_res_idx]]
+		# Diagnóstico de cuello de botella (temporal): draw calls visibles (+ de
+		# sombra), triángulos reales del frame y tiempo de CPU en _process. tris/draws
+		# bajos con FPS clavado => NO es geometría. cpu alto => script/CPU; bajo => GPU
+		# o submission (confirmar el split CPU/GPU real con OVR Metrics Tool).
+		var vp := get_viewport()
+		var vp_rid := vp.get_viewport_rid()
+		var gpu_ms := RenderingServer.viewport_get_measured_render_time_gpu(vp_rid)
+		var rcpu_ms := RenderingServer.viewport_get_measured_render_time_cpu(vp_rid)
+		var draws := vp.get_render_info(Viewport.RENDER_INFO_TYPE_VISIBLE, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME)
+		var tris := vp.get_render_info(Viewport.RENDER_INFO_TYPE_VISIBLE, Viewport.RENDER_INFO_PRIMITIVES_IN_FRAME)
+		var sdraws := vp.get_render_info(Viewport.RENDER_INFO_TYPE_SHADOW, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME)
+		var proc_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+		# gpu≈frame => GPU-bound. rcpu≈frame => CPU-de-render (submission de draws).
+		# proc≈frame => script. Todos bajos con frame alto => espera OpenXR/compositor.
+		fps_label.text = "FPS %d  frame %.1f\ngpu %.1f  rcpu %.1f  proc %.1f\ndraws %d (+%d sh)  tris %dk\nres %.0f  %s" % [int(fps), frame_ms, gpu_ms, rcpu_ms, proc_ms, draws, sdraws, tris / 1000, EYE_RES_PRESETS_PX[_eye_res_idx], _current_scenario_id]
 		_update_stream_hud()
 		fps_accumulator = 0.0
 		fps_frames = 0
