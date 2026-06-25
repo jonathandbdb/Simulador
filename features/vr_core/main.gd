@@ -34,7 +34,7 @@ const TARGET_PHYSICS_TICKS := 90
 # supersampling SÍ es compatible con foveación pero es caro (a >2064 caés <37 FPS). Estos
 # presets suben hasta 2800 para elegir el balance nitidez/FPS con el TRIGGER IZQUIERDO;
 # la res activa se ve en el FpsHud.
-const EYE_RES_PRESETS_PX: Array[float] = [1680.0, 2064.0, 2304.0, 2520.0, 2800.0]
+const EYE_RES_PRESETS_PX: Array[float] = [2064.0, 1680.0, 2304.0, 2520.0, 2800.0]
 
 # Lente inicial aplicada a ambos ojos al cargar el catalogo. Si no existe
 # en el catalogo, se usa la primera disponible.
@@ -46,6 +46,21 @@ const INITIAL_LENS_ID := "panoptix"
 # ejemplo en una escena nocturna con fuentes de luz puntuales. Cuando esta en
 # false, halo_intensity se fuerza a 0 en el shader sin tocar el catalogo.
 @export var halos_enabled: bool = false
+
+# --- Control de FPS + Application SpaceWarp (AppSW) ---
+# Estrategia pedida: resolución FIJA (la resolución dinámica de Meta queda APAGADA en
+# project.godot) + la app renderiza a un FPS sostenible y AppSW extrapola frames
+# intermedios hasta el refresh del panel. Así la imagen NO se degrada para ganar FPS.
+#   lock_refresh_hz: bloquea el refresh del panel (0 = no tocar). Hace determinístico el
+#     render entre cascos (a 90/120 Hz Meta recomienda menos px que a 72).
+#   app_fps_cap: tope de render de la app (Engine.max_fps; 0 = sin tope). AppSW NO es
+#     half-rate: extrapola DESDE el rate que sea hasta el refresh (p.ej. 24 reales -> 90).
+#     CLAVE: capear a un rate que la GPU sostenga CON MARGEN (que NO llegue al 99%), para
+#     que el tiempo de frame sea ESTABLE. AppSW reconstruye bien con timing parejo y mal
+#     con jitter de "máximo esfuerzo". Por eso un cap BAJO y estable (24) gana a 31 a fondo.
+# El cap se cicla en vivo con el TRIGGER IZQUIERDO; se ve en el FpsHud.
+@export var lock_refresh_hz: float = 90.0
+@export var app_fps_cap: int = 24
 
 # ====================================================================
 # Escenarios disponibles
@@ -197,6 +212,12 @@ func _ready() -> void:
 		if "foveation_level" in xr_interface:
 			xr_interface.foveation_level = 3
 
+		# Refresh fijo + cap de FPS: la app rinde a un FPS sostenible y AppSW completa
+		# el resto. La resolución dinámica de Meta está apagada (project.godot), así que
+		# la resolución la fija _apply_eye_resolution y NO se degrada para ganar FPS.
+		_lock_refresh_rate(lock_refresh_hz)
+		_apply_fps_cap(app_fps_cap)
+
 	# Medir CPU/GPU REAL del render del viewport (temporal): distingue GPU-bound vs
 	# CPU-de-render (submission) vs espera de OpenXR, sin depender de OVR Metrics ni
 	# adb. Lo lee el FpsHud en _process. Quitar al confirmar el cuello.
@@ -258,11 +279,56 @@ func _apply_eye_resolution() -> void:
 	print("XR: recomendado=%.0fpx -> mult=%.2f -> target=%.0fpx/ojo" % [rec_size.x, mult, target_px])
 
 
-## Cicla al siguiente preset de resolución por ojo (trigger izquierdo). Permite barrer
-## resoluciones en el casco y leer el FPS resultante en el FpsHud sin recompilar.
+## Cicla al siguiente preset de resolución por ojo. Ya NO va en el trigger izquierdo
+## (ahora ese cicla el cap de FPS, que es lo que se está afinando). Se deja para
+## reasignarlo a otro botón si hace falta barrer resolución.
 func _cycle_eye_resolution() -> void:
 	_eye_res_idx = (_eye_res_idx + 1) % EYE_RES_PRESETS_PX.size()
 	_apply_eye_resolution()
+
+
+# Presets de cap de FPS para barrer en vivo (trigger izquierdo). 0 = sin tope.
+# Valores BAJOS a propósito: AppSW completa hasta 90; lo que importa es timing estable
+# con margen de GPU, no acercarse al techo.
+const FPS_CAP_PRESETS: Array[int] = [0, 45, 36, 30, 24, 20, 18]
+var _fps_cap_idx: int = 4  # arranca en 24 (coincide con app_fps_cap por defecto)
+
+
+## Bloquea el refresh del panel al rate disponible más cercano (<=) al pedido. Hace
+## determinística la resolución recomendada y estabiliza el ritmo para AppSW.
+func _lock_refresh_rate(hz: float) -> void:
+	if hz <= 0.0 or xr_interface == null or not xr_interface.is_initialized():
+		return
+	if not xr_interface.has_method("get_available_display_refresh_rates"):
+		return
+	var rates: Array = xr_interface.get_available_display_refresh_rates()
+	if rates.is_empty():
+		print("XR: refresh rates no disponibles (no se bloquea)")
+		return
+	var chosen := 0.0
+	for r in rates:
+		var rf := float(r)
+		if rf <= hz + 0.5 and rf > chosen:
+			chosen = rf
+	if chosen <= 0.0:
+		chosen = float(rates.min())
+	xr_interface.set_display_refresh_rate(chosen)
+	print("XR refresh: disponibles=", rates, " -> lock ", chosen, " Hz")
+
+
+## Fija el tope de render de la app. Con AppSW activo, el runtime extrapola frames hasta
+## el refresh del panel, así que un cap = refresh/2 da un ritmo estable + frames sintéticos.
+func _apply_fps_cap(cap: int) -> void:
+	Engine.max_fps = maxi(cap, 0)
+	print("FPS cap: ", ("OFF" if cap <= 0 else str(cap)), "  (AppSW completa hasta el refresh)")
+
+
+## Cicla el cap de FPS (trigger izquierdo). Permite hallar en el casco el FPS que el GPU
+## sostiene a la resolución fija; AppSW completa el resto. El cap activo se ve en el FpsHud.
+func _cycle_app_fps_cap() -> void:
+	_fps_cap_idx = (_fps_cap_idx + 1) % FPS_CAP_PRESETS.size()
+	app_fps_cap = FPS_CAP_PRESETS[_fps_cap_idx]
+	_apply_fps_cap(app_fps_cap)
 
 
 func _dump_render_state() -> void:
@@ -277,9 +343,15 @@ func _dump_render_state() -> void:
 	print("RS msaa_3d_project=", ProjectSettings.get_setting("rendering/anti_aliasing/quality/msaa_3d", "unset"))
 	print("RS msaa_3d_override=", ProjectSettings.get_setting_with_override("rendering/anti_aliasing/quality/msaa_3d"))
 	print("RS render_method.mobile=", ProjectSettings.get_setting("rendering/renderer/rendering_method.mobile", "unset"))
+	print("RS meta.dynamic_resolution=", ProjectSettings.get_setting_with_override("xr/openxr/extensions/meta/dynamic_resolution"))
+	print("RS meta.application_space_warp=", ProjectSettings.get_setting_with_override("xr/openxr/extensions/meta/application_space_warp"))
+	print("RS submit_depth_buffer=", ProjectSettings.get_setting_with_override("xr/openxr/submit_depth_buffer"))
+	print("RS Engine.max_fps=", Engine.max_fps)
 	if xr_interface != null and xr_interface.is_initialized():
 		print("RS xr.render_target_size=", xr_interface.get_render_target_size())
 		print("RS xr.foveation_level=", (xr_interface.foveation_level if "foveation_level" in xr_interface else -1))
+		if xr_interface.has_method("get_display_refresh_rate"):
+			print("RS xr.display_refresh_rate=", xr_interface.get_display_refresh_rate())
 	else:
 		print("RS xr_interface NO inicializado (modo flat)")
 	print("RS lens L=", DataManager.current_vision_state.get("left", {}).get("lens_id", "?"),
@@ -597,8 +669,8 @@ func _on_left_hand_button_pressed(name: String) -> void:
 			# X — toggle halos (util para comparar con/sin en la escena nocturna).
 			toggle_halos()
 		"trigger_click":
-			# Trigger izq — cicla la resolución por ojo (medición de FPS en vivo).
-			_cycle_eye_resolution()
+			# Trigger izq — cicla el cap de FPS (la resolución queda fija; AppSW completa).
+			_cycle_app_fps_cap()
 
 
 # ====================================================================
@@ -787,7 +859,8 @@ func _process(delta: float) -> void:
 		var proc_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
 		# gpu≈frame => GPU-bound. rcpu≈frame => CPU-de-render (submission de draws).
 		# proc≈frame => script. Todos bajos con frame alto => espera OpenXR/compositor.
-		fps_label.text = "FPS %d  frame %.1f\ngpu %.1f  rcpu %.1f  proc %.1f\ndraws %d (+%d sh)  tris %dk\nres %.0f  %s" % [int(fps), frame_ms, gpu_ms, rcpu_ms, proc_ms, draws, sdraws, tris / 1000, EYE_RES_PRESETS_PX[_eye_res_idx], _current_scenario_id]
+		var cap_txt: String = ("OFF" if app_fps_cap <= 0 else str(app_fps_cap))
+		fps_label.text = "FPS %d  frame %.1f\ngpu %.1f  rcpu %.1f  proc %.1f\ndraws %d (+%d sh)  tris %dk\nres %.0f  cap %s  %s" % [int(fps), frame_ms, gpu_ms, rcpu_ms, proc_ms, draws, sdraws, tris / 1000, EYE_RES_PRESETS_PX[_eye_res_idx], cap_txt, _current_scenario_id]
 		_update_stream_hud()
 		fps_accumulator = 0.0
 		fps_frames = 0

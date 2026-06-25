@@ -46,8 +46,6 @@ common/physics_ticks_per_second=90
 
 [rendering]
 
-renderer/rendering_method="forward_plus"
-renderer/rendering_method.mobile="mobile"
 rendering_device/driver.windows="d3d12"
 textures/vram_compression/import_etc2_astc=true
 textures/default_filters/anisotropic_filtering_level=4.0
@@ -104,5 +102,8 @@ glare_astig_angle={
 
 openxr/enabled=true
 openxr/foveation_level=3
-openxr/extensions/meta/application_space_warp=true
+openxr/submit_depth_buffer=true
 shaders/enabled=true
+openxr/extensions/meta/application_space_warp=true
+openxr/extensions/meta/dynamic_resolution=false
+openxr/extensions/androidxr/dynamic_resolution=false
