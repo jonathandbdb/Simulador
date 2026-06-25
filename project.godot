@@ -49,10 +49,10 @@ common/physics_ticks_per_second=90
 rendering_device/driver.windows="d3d12"
 textures/vram_compression/import_etc2_astc=true
 textures/default_filters/anisotropic_filtering_level=4.0
-textures/default_filters/anisotropic_filtering_level.android=16.0
+textures/default_filters/anisotropic_filtering_level.android=4.0
 lights_and_shadows/directional_shadow/size.android=2048
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality.android=0
-lights_and_shadows/positional_shadow/atlas_size.android=2048
+lights_and_shadows/positional_shadow/atlas_size.android=256
 lights_and_shadows/positional_shadow/soft_shadow_filter_quality.android=0
 
 [shader_globals]
@@ -102,5 +102,4 @@ glare_astig_angle={
 
 openxr/enabled=true
 openxr/foveation_level=3
-openxr/foveation_dynamic=false
 shaders/enabled=true

@@ -21,10 +21,18 @@ const TARGET_PHYSICS_TICKS := 90
 
 # Resolución objetivo ABSOLUTA por ojo (px). Se calcula el multiplicador en _ready
 # para llegar a este valor en CUALQUIER Quest, sin importar la resolución que cada
-# casco reporte (varía por refresco / resolución dinámica del dispositivo). 2520 está
-# por encima del nativo del Quest 3 (2064) => nítido, y sostenible con la foveación
-# alta. Subir (2600-2800) = más nítido/menos FPS; bajar (2200-2400) = más FPS.
-const TARGET_EYE_RES_PX := 2520.0
+# casco reporte (varía por refresco / resolución dinámica del dispositivo).
+#
+# 2520 (supersampling ~1.22x sobre el nativo del Quest 3, 2064) era el principal
+# cuello de botella de FPS: el post-proceso de lentes es fill-rate bound (corre por
+# píxel y por ojo) y su costo escala con la resolución. Bajado a 2064 (nativo Q3) =>
+# 0.67x de píxeles, misma nitidez en el centro gracias a la foveación nivel 3.
+#
+# El PRIMER preset es el valor por defecto al arrancar. El resto se barren en runtime
+# con el TRIGGER del control IZQUIERDO para medir FPS vs nitidez en vivo (la res activa
+# se ve en el FpsHud). Bajar = más FPS; los dos últimos (2304/2520) quedan para
+# comparar contra el baseline anterior.
+const EYE_RES_PRESETS_PX: Array[float] = [2064.0, 1920.0, 1800.0, 1680.0, 2304.0, 2520.0]
 
 # Lente inicial aplicada a ambos ojos al cargar el catalogo. Si no existe
 # en el catalogo, se usa la primera disponible.
@@ -147,6 +155,9 @@ const NIGHT_PARAMS := {
 var xr_interface: XRInterface
 var fps_accumulator: float = 0.0
 var fps_frames: int = 0
+# Índice del preset de resolución por ojo activo (ver EYE_RES_PRESETS_PX). Se cicla
+# en runtime con el trigger izquierdo para medir FPS vs resolución sin recompilar.
+var _eye_res_idx: int = 0
 # Sprint 6: nodo de captura de streaming (creado en _ready).
 var _streaming_capture: Node = null
 # Toggle del shader post-proceso. Cuando esta en false, el quad se oculta
@@ -171,10 +182,7 @@ func _ready() -> void:
 		# Calculamos el multiplicador para llegar al TARGET fijo en todos los cascos:
 		# render predecible e igual en todos. TARGET por encima del nativo (2064) =
 		# nítido, pero sostenible (la foveación lo financia).
-		var rec_size := xr_interface.get_render_target_size()
-		var mult := clampf(TARGET_EYE_RES_PX / maxf(rec_size.x, 1.0), 0.5, 2.5)
-		xr_interface.set_render_target_size_multiplier(mult)
-		print("XR: recomendado=%.0fpx -> mult=%.2f -> target=%.0fpx/ojo" % [rec_size.x, mult, TARGET_EYE_RES_PX])
+		_apply_eye_resolution()
 		# Foveated rendering ALTO y FORZADO: renderiza el CENTRO (fóvea) a la
 		# resolución alta del supersampling y la PERIFERIA más barata => permite
 		# subir el render scale (nitidez central) manteniendo FPS. Clave de API: con
@@ -229,6 +237,25 @@ func _ready() -> void:
 		_apply_initial_lens()
 
 	_setup_streaming_capture()
+
+
+## Aplica el render scale para alcanzar EYE_RES_PRESETS_PX[_eye_res_idx] px por ojo.
+## Se llama en _ready y al ciclar resolución con el trigger izquierdo (medición viva).
+func _apply_eye_resolution() -> void:
+	if xr_interface == null or not xr_interface.is_initialized():
+		return
+	var target_px: float = EYE_RES_PRESETS_PX[_eye_res_idx]
+	var rec_size := xr_interface.get_render_target_size()
+	var mult := clampf(target_px / maxf(rec_size.x, 1.0), 0.5, 2.5)
+	xr_interface.set_render_target_size_multiplier(mult)
+	print("XR: recomendado=%.0fpx -> mult=%.2f -> target=%.0fpx/ojo" % [rec_size.x, mult, target_px])
+
+
+## Cicla al siguiente preset de resolución por ojo (trigger izquierdo). Permite barrer
+## resoluciones en el casco y leer el FPS resultante en el FpsHud sin recompilar.
+func _cycle_eye_resolution() -> void:
+	_eye_res_idx = (_eye_res_idx + 1) % EYE_RES_PRESETS_PX.size()
+	_apply_eye_resolution()
 
 
 func _dump_render_state() -> void:
@@ -562,6 +589,9 @@ func _on_left_hand_button_pressed(name: String) -> void:
 		"ax_button":
 			# X — toggle halos (util para comparar con/sin en la escena nocturna).
 			toggle_halos()
+		"trigger_click":
+			# Trigger izq — cicla la resolución por ojo (medición de FPS en vivo).
+			_cycle_eye_resolution()
 
 
 # ====================================================================
@@ -736,7 +766,7 @@ func _process(delta: float) -> void:
 	if fps_accumulator >= 0.5:
 		var fps := fps_frames / fps_accumulator
 		var frame_ms := (fps_accumulator / fps_frames) * 1000.0
-		fps_label.text = "FPS: %d\nFrame: %.2f ms\nescena: %s" % [int(fps), frame_ms, _current_scenario_id]
+		fps_label.text = "FPS: %d\nFrame: %.2f ms\nescena: %s\nres/ojo: %.0fpx" % [int(fps), frame_ms, _current_scenario_id, EYE_RES_PRESETS_PX[_eye_res_idx]]
 		_update_stream_hud()
 		fps_accumulator = 0.0
 		fps_frames = 0

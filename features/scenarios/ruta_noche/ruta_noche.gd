@@ -435,43 +435,67 @@ func _spawn_lamps(lamp_mesh: ArrayMesh, tile_len: float, road_half_x: float) -> 
 	# centro). Lado derecho rotado 180° para que su brazo también apunte adentro.
 	var edge_x: float = road_half_x * 0.92
 
+	# Reunir TODAS las ubicaciones primero, para dimensionar el MultiMesh.
+	# Cada entrada: {pos, yaw, light}.
+	var placements: Array[Dictionary] = []
 	if TEST_MINIMAL_NIGHT:
 		# UNA sola farola adelante del jugador (con su SpotLight), nada más.
-		_spawn_lamp_side(lamp_mesh, "test", Vector3(-edge_x, 0.0, -12.0), 0.0, true)
+		placements.append({"pos": Vector3(-edge_x, 0.0, -12.0), "yaw": 0.0, "light": true})
+	else:
+		for i in range(count):
+			var z: float = start_z + float(i) * lamp_spacing_m
+			# Evitar plantar una farola justo encima de la cámara/paciente (origen).
+			if absf(z) < 3.0:
+				continue
+			# El paciente mira a -Z: "delante" = z negativo (margen chico para no
+			# encender la farola apenas detrás del hombro). Las de atrás quedan
+			# emisivas sin SpotLight -> ahorro de luces real-time en Quest.
+			var ahead: bool = z <= 2.0
+			var with_light: bool = absf(z) <= lamp_light_radius_m \
+				and (ahead or not lamp_lights_only_ahead)
+			# Hilera izquierda (brazo +x hacia el centro) y derecha (rotada 180°).
+			placements.append({"pos": Vector3(-edge_x, 0.0, z), "yaw": 0.0, "light": with_light})
+			placements.append({"pos": Vector3(edge_x, 0.0, z), "yaw": 180.0, "light": with_light})
+
+	if placements.is_empty():
 		return
 
-	for i in range(count):
-		var z: float = start_z + float(i) * lamp_spacing_m
-		# Evitar plantar una farola justo encima de la cámara/paciente (origen).
-		if absf(z) < 3.0:
-			continue
-		# El paciente mira a -Z: "delante" = z negativo (margen chico para no
-		# encender la farola apenas detrás del hombro). Las de atrás quedan
-		# emisivas sin SpotLight -> ahorro de luces real-time en Quest.
-		var ahead: bool = z <= 2.0
-		var with_light: bool = absf(z) <= lamp_light_radius_m \
-			and (ahead or not lamp_lights_only_ahead)
-		# Hilera izquierda (brazo +x hacia el centro).
-		_spawn_lamp_side(lamp_mesh, "izq_%d" % i, Vector3(-edge_x, 0.0, z), 0.0, with_light)
-		# Hilera derecha (rotada 180°: brazo -x hacia el centro).
-		_spawn_lamp_side(lamp_mesh, "der_%d" % i, Vector3(edge_x, 0.0, z), 180.0, with_light)
+	# UN MultiMesh para TODAS las farolas: colapsa N draw calls (una por farola y por
+	# superficie) en solo surface_count (metal + luminaria) draw calls instanciados.
+	# Es la optimización de draw calls clave de la escena en Quest. Malla, glare y
+	# SpotLights quedan idénticos: solo cambia CÓMO se emite la geometría repetida. La
+	# luminaria sigue siendo emisiva (alimenta el glow/bloom); el glare por lente lo
+	# ponen los billboards de GlareSource (abajo), igual que antes.
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = lamp_mesh
+	mm.instance_count = placements.size()
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = "Lamps"
+	mmi.multimesh = mm
+	add_child(mmi)
+
+	for i in range(placements.size()):
+		var p: Dictionary = placements[i]
+		var pos: Vector3 = p["pos"]
+		var yaw: float = p["yaw"]
+		# La malla se escalaba con scale_factor en un hijo; ahora va en la transform de
+		# la instancia (escala uniforme => el orden rotación/escala es indistinto).
+		var basis := Basis(Vector3.UP, deg_to_rad(yaw)).scaled(Vector3.ONE * scale_factor)
+		mm.set_instance_transform(i, Transform3D(basis, pos))
+		_spawn_lamp_fixtures(pos, yaw, p["light"])
 
 
-func _spawn_lamp_side(lamp_mesh: ArrayMesh, suffix: String, pos: Vector3,
-		yaw_deg: float, with_light: bool) -> void:
-	# Contenedor SIN escala: así el SpotLight hijo no hereda el 0.016 (escalar una
-	# luz reduce su rango). La malla va escalada dentro.
+func _spawn_lamp_fixtures(pos: Vector3, yaw_deg: float, with_light: bool) -> void:
+	# La GEOMETRÍA la dibuja el MultiMesh; aca van solo los nodos que necesitan
+	# posición propia: el glare por lente (todas las farolas) y el SpotLight real
+	# (solo las cercanas). Contenedor SIN escala: el SpotLight no debe heredar el
+	# 0.016 (escalar una luz reduce su rango). Replica la transform del root anterior.
 	var root := Node3D.new()
-	root.name = "Lamp_%s" % suffix
+	root.name = "LampFixtures"
 	root.position = pos
 	root.rotation_degrees = Vector3(0.0, yaw_deg, 0.0)
 	add_child(root)
-
-	var mi := MeshInstance3D.new()
-	mi.name = "Mesh"
-	mi.mesh = lamp_mesh
-	mi.scale = Vector3.ONE * scale_factor
-	root.add_child(mi)
 
 	# Glare procedural en cada cabezal (TODAS las farolas, tambien las
 	# emisivas sin SpotLight): el halo/starburst por lente vive aca, no en
