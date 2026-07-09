@@ -21,6 +21,7 @@ Backend del simulador VR oftalmologico. Implementado en **Sprint 3**.
 ```
 backend/
 ├── docker-compose.yml      # api + db + bucket + caddy
+├── docker-compose.prod.yml # override prod: puertos 80/443 para caddy
 ├── Caddyfile               # reverse proxy + TLS
 ├── .env.example            # variables de entorno (copiar a .env)
 └── api/
@@ -82,29 +83,36 @@ MinIO console: http://localhost:9001 (usuario: minioadmin / minioadmin).
 
 ## Quick start — produccion en VPS
 
-1. Apuntar el dominio (ej. `api.tu-dominio.com`) al IP del VPS via DNS A record.
-2. Abrir puertos 80 y 443 en el firewall del VPS.
+Desplegado en produccion: **https://vr.conecta.sh** (VPS `2.25.81.197`, repo clonado en `/opt/simulador`).
+
+1. Apuntar el dominio (ej. `vr.conecta.sh`) al IP del VPS via DNS A record.
+2. Abrir puertos 80 y 443 en el firewall del VPS (ufw: `allow OpenSSH`, `allow 80`, `allow 443`).
 3. En el VPS:
    ```bash
-   git clone <repo>
-   cd simulador/backend
+   git clone https://github.com/jonathandbdb/Simulador.git /opt/simulador
+   cd /opt/simulador/backend
    cp .env.example .env
    # editar .env:
-   #   DOMAIN=api.tu-dominio.com
-   #   AUTO_HTTPS=on
+   #   DOMAIN=vr.conecta.sh
+   #   SCHEME=              (vacio — Caddy usa HTTPS automatico)
    #   PORT=443
    #   POSTGRES_PASSWORD=<openssl rand -hex 24>
+   #   MINIO_ROOT_PASSWORD=<openssl rand -hex 24>
    #   JWT_SECRET=<openssl rand -hex 32>
    #   ADMIN_DEFAULT_PASS=<password fuerte>
    #   API_KEY_CI=<openssl rand -hex 32>
-   #   PUBLIC_BASE_URL=https://api.tu-dominio.com
-   docker compose up -d
+   #   PUBLIC_BASE_URL=https://vr.conecta.sh
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
    ```
+   El override `docker-compose.prod.yml` mapea 80/443 para Caddy (el compose
+   base mapea `${PORT}:${PORT}`, pensado para local).
 4. Caddy emite el certificado automaticamente la primera vez (toma ~30 s).
 5. Verificar:
    ```bash
-   curl https://api.tu-dominio.com/healthz
+   curl https://vr.conecta.sh/healthz
+   curl https://vr.conecta.sh/api/lenses
    ```
+6. Eliminar el device de test del seed (`DEV_TEST_001`) desde el panel admin.
 
 ## Comandos utiles
 
